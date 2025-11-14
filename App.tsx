@@ -588,13 +588,13 @@ const ManageMembersModal: React.FC<{
             <div>
               <h3 className="font-semibold text-lg mb-2 text-gray-700 dark:text-gray-200">Existing Members</h3>
               <div className="space-y-2">
-                <div className="flex items-center justify-between p-2 bg-gray-100 dark:bg-slate-700 rounded-md">
+                <div className="flex items-center justify-between p-3 bg-gray-100 dark:bg-slate-700 rounded-lg">
                     <span className="font-medium text-gray-500 dark:text-gray-400">Home Balance (Default)</span>
                 </div>
                 {members.map(m => (
-                    <div key={m.id} className="flex items-center justify-between p-2 bg-gray-100 dark:bg-slate-700 rounded-md">
-                        <span className="font-medium">{m.name}</span>
-                        <button onClick={() => onDelete(m.id)} className="p-1 text-gray-400 hover:text-red-500">
+                    <div key={m.id} className="flex items-center justify-between p-3 bg-gray-100 dark:bg-slate-700 rounded-lg">
+                        <span className="font-medium flex-grow">{m.name}</span>
+                        <button onClick={() => onDelete(m.id)} className="p-1 text-gray-400 hover:text-red-500 flex-shrink-0">
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                         </button>
                     </div>

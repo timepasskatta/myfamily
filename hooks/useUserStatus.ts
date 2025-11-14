@@ -24,16 +24,16 @@ export function useUserStatus() {
       return;
     }
 
-    // Immediately grant admin status if UID matches
-    if (user.uid === ADMIN_UID) {
+    const isAdmin = user.uid === ADMIN_UID;
+    if (isAdmin) {
       setStatus('admin');
-      setProfile(null); // Admin doesn't need a profile doc for status
+      setProfile(null); 
       return;
     }
 
     const userDocRef = doc(db, 'users', user.uid);
 
-    const unsubscribe = onSnapshot(userDocRef, async (docSnap) => {
+    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
       if (docSnap.exists()) {
         const userProfile = { id: docSnap.id, ...docSnap.data() } as UserProfile;
         setProfile(userProfile);
@@ -51,22 +51,24 @@ export function useUserStatus() {
           }
         }
       } else {
-        // User exists in Auth, but not in our 'users' collection. Create it.
-        try {
-            await setDoc(userDocRef, {
-                email: user.email,
-                status: UserStatus.PENDING,
-                accessExpiresAt: null,
-                createdAt: serverTimestamp(),
-            });
-            // The onSnapshot listener will automatically pick up the new 'pending' doc.
-        } catch (error) {
-            console.error("Failed to create user profile:", error);
-        }
+        // User exists in Auth, but not in our 'users' collection. Attempt to create it.
+        setDoc(userDocRef, {
+            email: user.email,
+            status: UserStatus.PENDING,
+            accessExpiresAt: null,
+            createdAt: serverTimestamp(),
+        }).catch(error => {
+            // This is a critical failure, likely due to Firestore security rules.
+            // The user cannot use the app without a profile. Fallback to a rejected state.
+            console.error("CRITICAL: Failed to create user profile. This is likely a Firestore security rule issue.", error);
+            setStatus('rejected');
+        });
+        // The onSnapshot listener will automatically pick up the new doc if creation is successful.
+        // If it fails, we've already set the status to 'rejected'.
       }
     }, (error) => {
         console.error("Error listening to user status:", error);
-        // Fallback to a safe state
+        // Fallback to a safe state if we can't even read the doc
         setStatus('rejected');
     });
 
