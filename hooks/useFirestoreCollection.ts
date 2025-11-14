@@ -28,7 +28,7 @@ export function useFirestoreCollection<T>(collectionName: string) {
     };
 
     setLoading(true);
-    const collectionPath = `users/${user.uid}/${collectionName}`;
+    const collectionPath = `userData/${user.uid}/${collectionName}`;
     const collRef = collection(db, collectionPath);
 
     // The 'categories' collection does not have a 'date' field, so we only apply
@@ -54,7 +54,7 @@ export function useFirestoreCollection<T>(collectionName: string) {
 
   const addDocument = async (item: Omit<T, 'id'>) => {
     if (!user) throw new Error("User not authenticated");
-    const collectionPath = `users/${user.uid}/${collectionName}`;
+    const collectionPath = `userData/${user.uid}/${collectionName}`;
     return await addDoc(collection(db, collectionPath), {
         ...item,
         // Add a server timestamp for creation if not provided
@@ -64,19 +64,19 @@ export function useFirestoreCollection<T>(collectionName: string) {
 
   const updateDocument = async (id: string, item: Partial<T>) => {
     if (!user) throw new Error("User not authenticated");
-    const docPath = `users/${user.uid}/${collectionName}/${id}`;
+    const docPath = `userData/${user.uid}/${collectionName}/${id}`;
     return await updateDoc(doc(db, docPath), item);
   };
 
   const deleteDocument = async (id: string) => {
     if (!user) throw new Error("User not authenticated");
-    const docPath = `users/${user.uid}/${collectionName}/${id}`;
+    const docPath = `userData/${user.uid}/${collectionName}/${id}`;
     return await deleteDoc(doc(db, docPath));
   };
   
   const addDocumentsBatch = async (items: Omit<T, 'id'>[]) => {
     if (!user) throw new Error("User not authenticated");
-    const collectionPath = `users/${user.uid}/${collectionName}`;
+    const collectionPath = `userData/${user.uid}/${collectionName}`;
     const collectionRef = collection(db, collectionPath);
     const batch = writeBatch(db);
 

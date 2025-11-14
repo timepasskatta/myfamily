@@ -4,7 +4,9 @@ import {
   signInWithEmailAndPassword,
   AuthError
 } from 'firebase/auth';
-import { auth } from '../firebaseConfig';
+import { auth, db } from '../firebaseConfig';
+import { doc, setDoc, Timestamp } from 'firebase/firestore';
+import { UserStatus } from '../types';
 
 export const Auth: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -22,11 +24,32 @@ export const Auth: React.FC = () => {
       if (isLogin) {
         await signInWithEmailAndPassword(auth, email, password);
       } else {
-        await createUserWithEmailAndPassword(auth, email, password);
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        
+        // After creating the user in Auth, create their profile document in Firestore
+        try {
+          const userDocRef = doc(db, 'userProfiles', user.uid);
+          await setDoc(userDocRef, {
+              email: user.email,
+              status: UserStatus.PENDING,
+              accessExpiresAt: null,
+              createdAt: Timestamp.now(),
+          });
+        } catch (dbError) {
+          console.error("Firestore Error: Failed to create user profile.", dbError);
+          // This is a critical error. The user is created in Auth but not in DB.
+          // Inform the user and sign them out to prevent them from being in a broken state.
+          setError("Account created, but failed to set up profile. Please contact the administrator.");
+          await auth.signOut();
+        }
       }
     } catch (err) {
       const authError = err as AuthError;
-      setError(authError.message.replace('Firebase: ', ''));
+       // Don't show the generic error if we've already set a specific one for DB failure.
+      if (!error) {
+        setError(authError.message.replace('Firebase: ', ''));
+      }
     } finally {
         setLoading(false);
     }

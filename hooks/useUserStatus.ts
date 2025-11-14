@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db, auth } from '../firebaseConfig';
-import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { UserProfile, UserStatus } from '../types';
 import { ADMIN_EMAIL } from '../adminConfig';
@@ -31,7 +31,7 @@ export function useUserStatus() {
       return;
     }
 
-    const userDocRef = doc(db, 'users', user.uid);
+    const userDocRef = doc(db, 'userProfiles', user.uid);
 
     const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -51,20 +51,10 @@ export function useUserStatus() {
           }
         }
       } else {
-        // User exists in Auth, but not in our 'users' collection. Attempt to create it.
-        setDoc(userDocRef, {
-            email: user.email,
-            status: UserStatus.PENDING,
-            accessExpiresAt: null,
-            createdAt: serverTimestamp(),
-        }).catch(error => {
-            // This is a critical failure, likely due to Firestore security rules.
-            // The user cannot use the app without a profile. Fallback to a rejected state.
-            console.error("CRITICAL: Failed to create user profile. This is likely a Firestore security rule issue.", error);
-            setStatus('rejected');
-        });
-        // The onSnapshot listener will automatically pick up the new doc if creation is successful.
-        // If it fails, we've already set the status to 'rejected'.
+        // With the new logic, a user should always have a profile upon sign-up.
+        // If they don't, it's an error state. Treat them as rejected.
+        console.warn(`User ${user.uid} is authenticated but has no profile document.`);
+        setStatus('rejected');
       }
     }, (error) => {
         console.error("Error listening to user status:", error);

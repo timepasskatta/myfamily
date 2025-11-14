@@ -16,7 +16,7 @@ export const AdminDashboard: React.FC = () => {
 
     useEffect(() => {
         setLoading(true);
-        const usersColRef = collection(db, 'users');
+        const usersColRef = collection(db, 'userProfiles');
         const unsubscribe = onSnapshot(usersColRef, (snapshot) => {
             const userList: UserProfile[] = [];
             snapshot.forEach(doc => userList.push({ id: doc.id, ...doc.data() } as UserProfile));
@@ -36,13 +36,13 @@ export const AdminDashboard: React.FC = () => {
         setUpdatingUser(uid);
         setUpdateError(null);
         try {
-            const userDocRef = doc(db, 'users', uid);
+            const userDocRef = doc(db, 'userProfiles', uid);
             await updateDoc(userDocRef, { status, accessExpiresAt: expiresAt });
         } catch (err: any) {
             console.error("Failed to update user status:", err);
             let message = "An unexpected error occurred. Please try again.";
             if (err.code === 'permission-denied') {
-                message = "Permission Denied: Ensure your Firestore security rules grant the admin full read/write access to the 'users' collection.";
+                message = "Permission Denied: Ensure your Firestore security rules grant the admin full read/write access to the 'userProfiles' collection.";
             }
             setUpdateError(message);
         } finally {
