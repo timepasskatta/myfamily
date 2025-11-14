@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { auth } from './firebaseConfig';
 import { signOut, User } from 'firebase/auth';
 import { useFirestoreCollection } from './hooks/useFirestoreCollection';
@@ -6,12 +6,15 @@ import { useUserStatus } from './hooks/useUserStatus';
 
 import { Category, Transaction, TransactionType, FamilyMember } from './types';
 import { DEFAULT_CATEGORIES, COLORS, ICONS, DEFAULT_INCOME_CATEGORIES, DEFAULT_EXPENSE_CATEGORIES } from './constants';
-import { Dashboard } from './components/Dashboard';
 import { TransactionsList } from './components/TransactionsList';
 import { Auth } from './components/Auth';
-import { AdminPage } from './components/AdminDashboard';
 import { PendingScreen, RejectedScreen, ExpiredScreen } from './components/UserStatusScreens';
 import { exportToCsv, exportToJson, importFromJson } from './hooks/dataUtils';
+
+// Lazy Load components for code-splitting and better performance
+const LazyAdminPage = lazy(() => import('./components/AdminDashboard'));
+const LazyDashboard = lazy(() => import('./components/Dashboard'));
+
 
 // UI Components defined in the same file to reduce file count
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }> = ({ isOpen, onClose, title, children }) => {
@@ -30,6 +33,16 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; chi
     </div>
   );
 };
+
+// Loading Spinner for Suspense fallback
+const FullScreenLoader: React.FC = () => (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900">
+        <svg className="animate-spin h-10 w-10 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+    </div>
+);
 
 // Main App Component
 function App() {
@@ -221,11 +234,7 @@ function App() {
   }
 
   if (authLoading || status === 'loading') {
-    return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900">
-            <h1 className="text-2xl font-bold text-gray-700 dark:text-gray-300">Loading Application...</h1>
-        </div>
-    )
+    return <FullScreenLoader />;
   }
 
   switch(status) {
@@ -238,7 +247,11 @@ function App() {
     case 'expired':
       return <ExpiredScreen />;
     case 'admin':
-      return <AdminPage user={user!} />;
+      return (
+        <Suspense fallback={<FullScreenLoader />}>
+          <LazyAdminPage user={user!} />
+        </Suspense>
+      );
     case 'approved':
       break; // fallthrough to render the app
     default:
@@ -290,7 +303,20 @@ function App() {
             <div className="text-center py-10"><p>Loading data...</p></div>
          ) : (
             <>
-              <Dashboard transactions={transactions} categories={categories} members={members} />
+              <Suspense fallback={
+                  <div className="space-y-8 animate-pulse">
+                      <div className="h-10 bg-gray-200 dark:bg-slate-700 rounded-lg w-1/3"></div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          <div className="h-28 bg-gray-200 dark:bg-slate-700 rounded-2xl"></div>
+                          <div className="h-28 bg-gray-200 dark:bg-slate-700 rounded-2xl"></div>
+                          <div className="h-28 bg-gray-200 dark:bg-slate-700 rounded-2xl"></div>
+                      </div>
+                      <div className="h-80 bg-gray-200 dark:bg-slate-700 rounded-2xl"></div>
+                  </div>
+              }>
+                <LazyDashboard transactions={transactions} categories={categories} members={members} />
+              </Suspense>
+
               <div className="mt-8">
                 <button
                   onClick={() => { setEditingTransaction(null); setAddTransactionModalOpen(true); }}

@@ -31,7 +31,8 @@ export function useUserStatus() {
       return;
     }
 
-    const userDocRef = doc(db, 'userProfiles', user.uid);
+    // FIX: Changed path from 'userProfiles' to 'users' to align with the new unified data structure.
+    const userDocRef = doc(db, 'users', user.uid);
 
     const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
       if (docSnap.exists()) {

@@ -5,7 +5,7 @@ import {
   AuthError
 } from 'firebase/auth';
 import { auth, db } from '../firebaseConfig';
-import { doc, setDoc, Timestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { UserStatus } from '../types';
 
 export const Auth: React.FC = () => {
@@ -27,26 +27,31 @@ export const Auth: React.FC = () => {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
         
-        // After creating the user in Auth, create their profile document in Firestore
+        // After creating the user in Auth, create their profile document in Firestore.
+        // This is a critical step; if it fails, the user exists in Auth but not in our app's DB.
         try {
-          const userDocRef = doc(db, 'userProfiles', user.uid);
-          await setDoc(userDocRef, {
-              email: user.email,
+          // FIX: Switched from 'userProfiles' to a unified 'users' collection for consistency.
+          const userDocRef = doc(db, 'users', user.uid);
+          
+          const userProfilePayload = {
+              email: user.email || 'No Email Provided',
               status: UserStatus.PENDING,
               accessExpiresAt: null,
-              createdAt: Timestamp.now(),
-          });
+              createdAt: serverTimestamp(),
+          };
+          await setDoc(userDocRef, userProfilePayload);
+          
         } catch (dbError) {
           console.error("Firestore Error: Failed to create user profile.", dbError);
-          // This is a critical error. The user is created in Auth but not in DB.
-          // Inform the user and sign them out to prevent them from being in a broken state.
+          // If profile creation fails, the user is in a broken state.
+          // We must sign them out and show a clear error message.
           setError("Account created, but failed to set up profile. Please contact the administrator.");
           await auth.signOut();
         }
       }
     } catch (err) {
       const authError = err as AuthError;
-       // Don't show the generic error if we've already set a specific one for DB failure.
+       // Don't show a generic auth error if we've already set a specific one for DB failure.
       if (!error) {
         setError(authError.message.replace('Firebase: ', ''));
       }

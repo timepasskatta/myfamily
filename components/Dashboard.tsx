@@ -86,7 +86,7 @@ const ContributionsChart: React.FC<{ data: { name: string; value: number }[] }> 
 };
 
 
-export const Dashboard: React.FC<DashboardProps> = ({ transactions, categories, members }) => {
+const Dashboard: React.FC<DashboardProps> = ({ transactions, categories, members }) => {
   const [dateRange, setDateRange] = React.useState('month');
 
   const filteredTransactions = useMemo(() => {
@@ -232,3 +232,5 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, categories, 
     </div>
   );
 };
+
+export default Dashboard;
