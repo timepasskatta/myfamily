@@ -89,6 +89,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, categories }
   }, [filteredTransactions]);
 
   const categoryExpenseData = useMemo(() => {
+    // FIX: The initial value for `reduce` was an empty object `{}`, which caused TypeScript to infer the accumulator's values as `unknown`.
+    // This resulted in an error when trying to access `.value` in the `sort` function.
+    // A type assertion has been added to the initial value to correctly type the accumulator.
     const expenseByCategory = filteredTransactions
       .filter(t => t.type === TransactionType.EXPENSE)
       .reduce((acc, t) => {

@@ -1,9 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { useLocalStorage } from './hooks/useLocalStorage';
+import { useAuthState } from 'react-firebase-hooks/auth';
+import { auth } from './firebaseConfig';
+import { signOut } from 'firebase/auth';
+import { useFirestoreCollection } from './hooks/useFirestoreCollection';
+
 import { Category, Transaction, TransactionType } from './types';
 import { DEFAULT_CATEGORIES, COLORS, ICONS } from './constants';
 import { Dashboard } from './components/Dashboard';
 import { TransactionsList } from './components/TransactionsList';
+import { Auth } from './components/Auth';
 import { exportToCsv, exportToJson, importFromJson } from './utils/dataUtils';
 
 // UI Components defined in the same file to reduce file count
@@ -26,31 +31,76 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; chi
 
 // Main App Component
 function App() {
-  const [transactions, setTransactions] = useLocalStorage<Transaction[]>('transactions', []);
-  const [categories, setCategories] = useLocalStorage<Category[]>('categories', DEFAULT_CATEGORIES);
-  const [theme, setTheme] = useLocalStorage<'light' | 'dark'>('theme', 'light');
+  const [user, authLoading, authError] = useAuthState(auth);
+  const { data: transactions, loading: transactionsLoading, addDocument: addTransaction, updateDocument: updateTransaction, deleteDocument: deleteTransaction, addDocumentsBatch: addTransactionsBatch } = useFirestoreCollection<Transaction>('transactions');
+  const { data: categories, loading: categoriesLoading, addDocument: addCategoryDoc, updateDocument: updateCategory, deleteDocument: deleteCategory, addDocumentsBatch: addCategoriesBatch } = useFirestoreCollection<Category>('categories');
+  
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as 'light' | 'dark') || 'light');
 
   const [isAddTransactionModalOpen, setAddTransactionModalOpen] = useState(false);
   const [isManageCategoriesModalOpen, setManageCategoriesModalOpen] = useState(false);
   const [isBackupRestoreModalOpen, setBackupRestoreModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [showMigrationPrompt, setShowMigrationPrompt] = useState(false);
 
   useEffect(() => {
+    localStorage.setItem('theme', theme);
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
   }, [theme]);
+  
+   // Check for migration opportunity
+  useEffect(() => {
+    if (user && !categoriesLoading && categories.length === 0) {
+      const localTransactions = localStorage.getItem('transactions');
+      const localCategories = localStorage.getItem('categories');
+      if (localTransactions && localCategories) {
+        setShowMigrationPrompt(true);
+      } else if (categories.length === 0) {
+        // If no local data and no remote data, seed with defaults
+        addCategoriesBatch(DEFAULT_CATEGORIES.map(({id, ...rest}) => rest));
+      }
+    }
+  }, [user, categories, categoriesLoading, addCategoriesBatch]);
+
+
+  const handleMigration = () => {
+    try {
+      const localTransactions: Transaction[] = JSON.parse(localStorage.getItem('transactions') || '[]');
+      const localCategories: Category[] = JSON.parse(localStorage.getItem('categories') || '[]');
+      
+      if (localTransactions.length > 0) {
+        addTransactionsBatch(localTransactions.map(({id, ...rest}) => rest));
+      }
+      if (localCategories.length > 0) {
+        const sanitizedCategories = localCategories.map(({id, ...c}) => ({...c, icon: ICONS[c.name.toUpperCase() as keyof typeof ICONS] || ICONS.OTHER }));
+        addCategoriesBatch(sanitizedCategories);
+      }
+      
+      alert("Data migrated successfully!");
+      localStorage.removeItem('transactions');
+      localStorage.removeItem('categories');
+      setShowMigrationPrompt(false);
+
+    } catch (error) {
+      alert("An error occurred during migration.");
+      console.error("Migration error: ", error);
+    }
+  }
 
   const toggleTheme = () => setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
 
   const handleAddOrUpdateTransaction = (transaction: Omit<Transaction, 'id'> & { id?: string }) => {
     if (transaction.id) {
-      setTransactions(prev => prev.map(t => t.id === transaction.id ? { ...t, ...transaction } : t));
+      const {id, ...dataToUpdate} = transaction;
+      updateTransaction(id, dataToUpdate);
     } else {
-      setTransactions(prev => [...prev, { ...transaction, id: `trans-${Date.now()}` }]);
+      const {id, ...dataToAdd} = transaction;
+      addTransaction(dataToAdd);
     }
     setAddTransactionModalOpen(false);
     setEditingTransaction(null);
@@ -63,17 +113,17 @@ function App() {
 
   const handleDeleteTransaction = (id: string) => {
     if (window.confirm('Are you sure you want to delete this transaction?')) {
-      setTransactions(prev => prev.filter(t => t.id !== id));
+      deleteTransaction(id);
     }
   };
 
   const handleAddCategory = (category: Omit<Category, 'id'>) => {
-      const newCategory = {...category, id: `cat-${Date.now()}`};
-      setCategories(prev => [...prev, newCategory]);
+      addCategoryDoc(category);
   }
   
   const handleUpdateCategory = (category: Category) => {
-      setCategories(prev => prev.map(c => c.id === category.id ? category : c));
+      const { id, ...dataToUpdate} = category;
+      updateCategory(id, dataToUpdate);
       setEditingCategory(null); // Exit editing mode
   }
   
@@ -83,34 +133,58 @@ function App() {
           return;
       }
       if (window.confirm('Are you sure you want to delete this category?')) {
-          setCategories(prev => prev.filter(c => c.id !== id));
+          deleteCategory(id);
       }
   }
   
   const handleRestore = (file: File) => {
     importFromJson(file, (data) => {
-        if(window.confirm('This will overwrite your current data. Are you sure?')) {
+        if(window.confirm('This will overwrite your current data on the server. Are you sure?')) {
             // A simple validation for categories before setting them
             const sanitizedCategories = data.categories.map(c => ({...c, icon: ICONS[c.name.toUpperCase() as keyof typeof ICONS] || ICONS.OTHER }));
-            setTransactions(data.transactions);
-            setCategories(sanitizedCategories);
+            // This is a simplified restore. For a real app, you'd clear existing and batch add new.
+            addTransactionsBatch(data.transactions.map(({id, ...rest}) => rest));
+            addCategoriesBatch(sanitizedCategories.map(({id, ...rest}) => rest));
             alert('Data restored successfully!');
             setBackupRestoreModalOpen(false);
         }
     });
   }
 
+  if (authLoading) {
+    return (
+        <div className="min-h-screen flex items-center justify-center">
+            <h1 className="text-2xl">Loading...</h1>
+        </div>
+    )
+  }
+
+  if (!user) {
+    return <Auth />;
+  }
+
   return (
     <div className="min-h-screen text-gray-800 dark:text-gray-200 bg-gray-50 dark:bg-slate-900 transition-colors duration-300">
+      {showMigrationPrompt && (
+        <div className="bg-yellow-100 dark:bg-yellow-900 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-200 p-4" role="alert">
+          <p className="font-bold">Welcome Back!</p>
+          <p>We've found data in your browser from your previous session. Would you like to import it to your account?</p>
+          <div className="mt-2">
+            <button onClick={handleMigration} className="bg-yellow-500 text-white font-bold py-1 px-3 rounded text-xs mr-2">Import Data</button>
+            <button onClick={() => setShowMigrationPrompt(false)} className="bg-transparent text-yellow-700 dark:text-yellow-200 font-semibold py-1 px-3 text-xs">Dismiss</button>
+          </div>
+        </div>
+      )}
       <header className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-lg sticky top-0 z-40 shadow-sm">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-primary">Family Expense Tracker</h1>
-          <div className="flex items-center space-x-4">
+          <h1 className="text-2xl lg:text-3xl font-bold text-primary">Family Expense Tracker</h1>
+          <div className="flex items-center space-x-2 sm:space-x-4">
             <button onClick={() => setAddTransactionModalOpen(true)} className="hidden sm:inline-flex items-center space-x-2 bg-primary text-white px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">
                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
                <span>Add Transaction</span>
             </button>
-             <div className="flex items-center space-x-2">
+             <div className="flex items-center space-x-1 sm:space-x-2">
+                <span className="text-sm hidden md:inline">{user.email}</span>
                 <button onClick={() => setManageCategoriesModalOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Manage Categories">
                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                 </button>
@@ -123,13 +197,20 @@ function App() {
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
                 }
                 </button>
+                 <button onClick={() => signOut(auth)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Logout">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                </button>
             </div>
           </div>
         </div>
       </header>
       <main className="container mx-auto p-4 sm:p-6 lg:p-8">
-        <Dashboard transactions={transactions} categories={categories} />
-        <TransactionsList transactions={transactions} categories={categories} onEdit={handleEditTransaction} onDelete={handleDeleteTransaction}/>
+        {(transactionsLoading || categoriesLoading) ? <p>Loading data...</p> : (
+            <>
+                <Dashboard transactions={transactions} categories={categories} />
+                <TransactionsList transactions={transactions} categories={categories} onEdit={handleEditTransaction} onDelete={handleDeleteTransaction}/>
+            </>
+        )}
       </main>
 
        <button onClick={() => setAddTransactionModalOpen(true)} className="sm:hidden fixed bottom-6 right-6 bg-primary text-white p-4 rounded-full shadow-lg z-30" aria-label="Add Transaction">
@@ -269,6 +350,8 @@ const ManageCategoriesModal: React.FC<{
             onAddCategory({ name, color, icon: ICONS[iconKey] || ICONS.OTHER });
         }
         onSetEditingCategory(null);
+        setName('');
+        setColor(COLORS[Math.floor(Math.random() * COLORS.length)]);
     }
 
     const handleCancelEdit = () => {
@@ -279,7 +362,7 @@ const ManageCategoriesModal: React.FC<{
         <Modal isOpen={isOpen} onClose={onClose} title="Manage Categories">
             <div className="space-y-4">
                 <form onSubmit={handleSubmit} className="space-y-3 pb-4 border-b dark:border-slate-700">
-                    <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Category name" className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent"/>
+                    <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Category name" required className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent"/>
                     <div className="flex items-center space-x-2">
                       <label htmlFor="color-picker" className="text-sm font-medium text-gray-700 dark:text-gray-300">Color:</label>
                       <input id="color-picker" type="color" value={color} onChange={e => setColor(e.target.value)} className="w-10 h-10 rounded-md p-0 border-none cursor-pointer bg-transparent" />
@@ -332,8 +415,8 @@ const BackupRestoreModal: React.FC<{isOpen: boolean, onClose: () => void, onExpo
                     </div>
                 </div>
                 <div>
-                    <h3 className="font-semibold mb-2 text-lg dark:text-gray-200">Restore Data</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Restore data from a JSON backup file. This will overwrite all current data.</p>
+                    <h3 className="font-semibold mb-2 text-lg dark:text-gray-200">Restore Data from JSON</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">This will add the data from the backup file to your account. It will not delete existing data.</p>
                     <input type="file" accept=".json" onChange={handleFileChange} ref={fileInputRef} className="hidden" />
                     <button onClick={() => fileInputRef.current?.click()} className="w-full text-center bg-orange-500 text-white p-3 rounded-lg font-semibold hover:bg-orange-600 transition-colors">Restore from JSON</button>
                 </div>

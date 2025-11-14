@@ -39,30 +39,35 @@ export const TransactionsList: React.FC<TransactionsListProps> = ({ transactions
     const isExpense = transaction.type === TransactionType.EXPENSE;
 
     return (
-      <div className="flex items-center p-4 bg-white dark:bg-slate-800 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors duration-200">
-        <div className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center" style={{ backgroundColor: category?.color + '20', color: category?.color }}>
+      <div className="flex items-start sm:items-center p-4 bg-white dark:bg-slate-800 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors duration-200 gap-4">
+        {/* Icon */}
+        <div className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center mt-1 sm:mt-0" style={{ backgroundColor: category?.color + '20', color: category?.color }}>
           {category?.icon}
         </div>
-        <div className="flex-grow flex flex-col md:flex-row md:items-center ml-4">
-          <div className="flex-grow">
-            <p className="font-semibold text-gray-800 dark:text-white">{transaction.description}</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{category?.name || 'Uncategorized'}</p>
-          </div>
-          <div className="flex items-center md:space-x-4">
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 md:mt-0 md:w-28 md:text-center">{new Date(transaction.date).toLocaleDateString('en-CA')}</p>
-            <p className={`font-semibold md:w-32 md:text-right ${isExpense ? 'text-red-500' : 'text-green-500'}`}>
+        
+        {/* Middle Section: Info (Description, Category, Date) */}
+        <div className="flex-grow grid sm:grid-cols-2 gap-x-4 items-center">
+            <div className="min-w-0">
+                <p className="font-semibold text-gray-800 dark:text-white truncate" title={transaction.description}>{transaction.description || 'No Description'}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{category?.name || 'Uncategorized'}</p>
+            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 sm:mt-0 sm:text-right">{new Date(transaction.date).toLocaleDateString('en-CA')}</p>
+        </div>
+
+        {/* Right Section: Amount & Actions */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 items-end">
+            <p className={`font-semibold text-base whitespace-nowrap ${isExpense ? 'text-red-500' : 'text-green-500'}`}>
               {isExpense ? '-' : '+'}
               {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(transaction.amount)}
             </p>
-          </div>
-        </div>
-        <div className="flex-shrink-0 ml-4 flex items-center">
-          <button onClick={() => onEdit(transaction)} className="p-2 text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
-            <svg xmlns="http://www.w.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z" /></svg>
-          </button>
-          <button onClick={() => onDelete(transaction.id)} className="p-2 text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-          </button>
+            <div className="flex items-center">
+              <button onClick={() => onEdit(transaction)} className="p-2 text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors" aria-label="Edit Transaction">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z" /></svg>
+              </button>
+              <button onClick={() => onDelete(transaction.id)} className="p-2 text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors" aria-label="Delete Transaction">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </button>
+            </div>
         </div>
       </div>
     );
