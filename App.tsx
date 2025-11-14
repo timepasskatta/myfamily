@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { auth } from './firebaseConfig';
-import { signOut } from 'firebase/auth';
+import { signOut, User } from 'firebase/auth';
 import { useFirestoreCollection } from './hooks/useFirestoreCollection';
 import { useUserStatus } from './hooks/useUserStatus';
 
@@ -36,7 +36,7 @@ function App() {
   const { status, user, authLoading } = useUserStatus();
   const { data: transactions, loading: transactionsLoading, addDocument: addTransaction, updateDocument: updateTransaction, deleteDocument: deleteTransaction, addDocumentsBatch: addTransactionsBatch } = useFirestoreCollection<Transaction>('transactions');
   const { data: categories, loading: categoriesLoading, addDocument: addCategoryDoc, updateDocument: updateCategory, deleteDocument: deleteCategory, addDocumentsBatch: addCategoriesBatch } = useFirestoreCollection<Category>('categories');
-  const { data: members, loading: membersLoading, addDocument: addMemberDoc, updateDocument: updateMember, deleteDocument: deleteMember } = useFirestoreCollection<FamilyMember>('members');
+  const { data: members, loading: membersLoading, addDocument: addMemberDoc, updateDocument: updateMember, deleteDocument: deleteMember, addDocumentsBatch: addMembersBatch } = useFirestoreCollection<FamilyMember>('members');
   
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as 'light' | 'dark') || 'light');
 
@@ -165,12 +165,27 @@ function App() {
   
   const handleRestore = (file: File) => {
     importFromJson(file, (data) => {
-        if(window.confirm('This will overwrite your current data on the server. Are you sure?')) {
+        if(window.confirm('This will add data from the backup file to your account. It will not replace or delete existing data. Continue?')) {
             const sanitizedCategories = data.categories.map(c => ({...c, icon: ICONS[c.name.toUpperCase() as keyof typeof ICONS] || ICONS.OTHER }));
-            addTransactionsBatch(data.transactions.map(({id, ...rest}) => rest));
-            addCategoriesBatch(sanitizedCategories.map(({id, ...rest}) => rest));
-            alert('Data restored successfully!');
-            setBackupRestoreModalOpen(false);
+            
+            const promises = [];
+            if (data.transactions.length > 0) {
+              promises.push(addTransactionsBatch(data.transactions.map(({id, ...rest}) => rest)));
+            }
+            if (sanitizedCategories.length > 0) {
+              promises.push(addCategoriesBatch(sanitizedCategories.map(({id, ...rest}) => rest)));
+            }
+            if (data.members && data.members.length > 0) {
+              promises.push(addMembersBatch(data.members.map(({id, ...rest}) => rest)));
+            }
+
+            Promise.all(promises).then(() => {
+              alert('Data restored successfully!');
+              setBackupRestoreModalOpen(false);
+            }).catch(err => {
+              console.error("Restore error: ", err);
+              alert("An error occurred during restore.");
+            });
         }
     });
   }
@@ -187,7 +202,7 @@ function App() {
     case 'no-auth':
       return <Auth />;
     case 'pending':
-      return <PendingScreen />;
+      return <PendingScreen user={user} onSignOut={() => signOut(auth)} />;
     case 'rejected':
       return <RejectedScreen />;
     case 'expired':
@@ -290,8 +305,8 @@ function App() {
       <BackupRestoreModal 
         isOpen={isBackupRestoreModalOpen}
         onClose={() => setBackupRestoreModalOpen(false)}
-        onExportCsv={() => exportToCsv(transactions, categories)}
-        onExportJson={() => exportToJson(transactions, categories)}
+        onExportCsv={() => exportToCsv(transactions, categories, members)}
+        onExportJson={() => exportToJson(transactions, categories, members)}
         onRestore={handleRestore}
       />
     </div>

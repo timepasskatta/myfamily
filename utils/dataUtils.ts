@@ -1,17 +1,20 @@
 
-import { Transaction, Category } from './types';
+import { Transaction, Category, FamilyMember } from './types';
 
-export const exportToCsv = (transactions: Transaction[], categories: Category[]) => {
+export const exportToCsv = (transactions: Transaction[], categories: Category[], members: FamilyMember[]) => {
   const categoryMap = new Map(categories.map(c => [c.id, c.name]));
+  const memberMap = new Map(members.map(m => [m.id, m.name]));
   let csvContent = "data:text/csv;charset=utf-t8,";
-  csvContent += "Date,Type,Description,Category,Amount\n";
+  csvContent += "Date,Type,Description,Category,Member,Amount\n";
 
   transactions.forEach(t => {
+    const memberName = t.memberId ? memberMap.get(t.memberId) : 'Family Pool';
     const row = [
       t.date,
       t.type,
       `"${t.description.replace(/"/g, '""')}"`,
       categoryMap.get(t.categoryId) || 'Uncategorized',
+      memberName,
       t.amount.toFixed(2)
     ].join(',');
     csvContent += row + "\r\n";
@@ -26,10 +29,11 @@ export const exportToCsv = (transactions: Transaction[], categories: Category[])
   document.body.removeChild(link);
 };
 
-export const exportToJson = (transactions: Transaction[], categories: Category[]) => {
+export const exportToJson = (transactions: Transaction[], categories: Category[], members: FamilyMember[]) => {
   const data = {
     transactions,
     categories,
+    members,
     timestamp: new Date().toISOString(),
   };
 
@@ -43,14 +47,15 @@ export const exportToJson = (transactions: Transaction[], categories: Category[]
   link.click();
 };
 
-export const importFromJson = (file: File, onImport: (data: { transactions: Transaction[], categories: Category[] }) => void) => {
+export const importFromJson = (file: File, onImport: (data: { transactions: Transaction[], categories: Category[], members: FamilyMember[] }) => void) => {
   const reader = new FileReader();
   reader.onload = (event) => {
     try {
       if (event.target?.result) {
         const data = JSON.parse(event.target.result as string);
         if (data.transactions && data.categories) {
-          onImport(data);
+          // Handle backward compatibility for backups without a members array
+          onImport({ transactions: data.transactions, categories: data.categories, members: data.members || [] });
         } else {
           alert('Invalid JSON format. Make sure it contains "transactions" and "categories" keys.');
         }
