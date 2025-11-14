@@ -6,4 +6,4 @@
 // 5. Copy the "User UID" for the account you want to be the admin.
 // 6. Paste it here between the quotes.
 
-export const ADMIN_UID = "PASTE_YOUR_ADMIN_UID_HERE";
+export const ADMIN_UID = "YusjBKjlWOMocijhylNEatcGfa93";
