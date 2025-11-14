@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from './firebaseConfig';
 import { signOut } from 'firebase/auth';
 import { useFirestoreCollection } from './hooks/useFirestoreCollection';
+import { useUserStatus } from './hooks/useUserStatus';
 
 import { Category, Transaction, TransactionType, FamilyMember } from './types';
 import { DEFAULT_CATEGORIES, COLORS, ICONS } from './constants';
 import { Dashboard } from './components/Dashboard';
 import { TransactionsList } from './components/TransactionsList';
 import { Auth } from './components/Auth';
+import { AdminDashboard } from './components/AdminDashboard';
+import { PendingScreen, RejectedScreen, ExpiredScreen } from './components/UserStatusScreens';
 import { exportToCsv, exportToJson, importFromJson } from './utils/dataUtils';
 
 // UI Components defined in the same file to reduce file count
@@ -31,7 +33,7 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; chi
 
 // Main App Component
 function App() {
-  const [user, authLoading] = useAuthState(auth);
+  const { status, user, authLoading } = useUserStatus();
   const { data: transactions, loading: transactionsLoading, addDocument: addTransaction, updateDocument: updateTransaction, deleteDocument: deleteTransaction, addDocumentsBatch: addTransactionsBatch } = useFirestoreCollection<Transaction>('transactions');
   const { data: categories, loading: categoriesLoading, addDocument: addCategoryDoc, updateDocument: updateCategory, deleteDocument: deleteCategory, addDocumentsBatch: addCategoriesBatch } = useFirestoreCollection<Category>('categories');
   const { data: members, loading: membersLoading, addDocument: addMemberDoc, updateDocument: updateMember, deleteDocument: deleteMember } = useFirestoreCollection<FamilyMember>('members');
@@ -42,8 +44,8 @@ function App() {
   const [isManageCategoriesModalOpen, setManageCategoriesModalOpen] = useState(false);
   const [isManageMembersModalOpen, setManageMembersModalOpen] = useState(false);
   const [isBackupRestoreModalOpen, setBackupRestoreModalOpen] = useState(false);
+  const [isAdminPanelOpen, setAdminPanelOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
-  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [showMigrationPrompt, setShowMigrationPrompt] = useState(false);
 
   useEffect(() => {
@@ -126,6 +128,8 @@ function App() {
     } else {
       addCategoryDoc(category);
     }
+    // Bug Fix: Clear form after submission
+    // This logic is now handled inside the ManageCategoriesModal component
   };
   
   const handleDeleteCategory = (id: string) => {
@@ -145,6 +149,8 @@ function App() {
     } else {
       addMemberDoc(member);
     }
+    // Bug Fix: Clear form after submission
+    // This logic is now handled inside the ManageMembersModal component
   };
 
   const handleDeleteMember = (id: string) => {
@@ -169,7 +175,7 @@ function App() {
     });
   }
 
-  if (authLoading) {
+  if (authLoading || status === 'loading') {
     return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900">
             <h1 className="text-2xl font-bold text-gray-700 dark:text-gray-300">Loading Application...</h1>
@@ -177,9 +183,27 @@ function App() {
     )
   }
 
-  if (!user) {
-    return <Auth />;
+  switch(status) {
+    case 'no-auth':
+      return <Auth />;
+    case 'pending':
+      return <PendingScreen />;
+    case 'rejected':
+      return <RejectedScreen />;
+    case 'expired':
+      return <ExpiredScreen />;
+    case 'admin':
+    case 'approved':
+      // User is approved or is the admin, show the main app
+      break; // fallthrough to render the app
+    default:
+       return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900">
+            <h1 className="text-2xl font-bold text-gray-700 dark:text-gray-300">An unexpected error occurred.</h1>
+        </div>
+      )
   }
+
 
   return (
     <div className="min-h-screen text-gray-800 dark:text-gray-200 bg-gray-50 dark:bg-slate-900 transition-colors duration-300">
@@ -195,33 +219,32 @@ function App() {
       )}
       <header className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-lg sticky top-0 z-40 shadow-sm">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-2xl lg:text-3xl font-bold text-primary">Family Expense Tracker</h1>
-          <div className="flex items-center space-x-2 sm:space-x-4">
-            <button onClick={() => setAddTransactionModalOpen(true)} className="hidden sm:inline-flex items-center space-x-2 bg-primary text-white px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">
-               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
-               <span>Add Transaction</span>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-primary">Family Expense<br className="block sm:hidden" /> Tracker</h1>
+          <div className="flex items-center space-x-1 sm:space-x-2">
+            {status === 'admin' && (
+               <button onClick={() => setAdminPanelOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Admin Panel">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+              </button>
+            )}
+            <span className="text-sm hidden md:inline">{user?.email}</span>
+            <button onClick={() => setManageMembersModalOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Manage Members">
+               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.653-.125-1.274-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.653.125-1.274.356-1.857m0 0a3.001 3.001 0 015.644 0M12 12a3 3 0 100-6 3 3 0 000 6z" /></svg>
             </button>
-             <div className="flex items-center space-x-1 sm:space-x-2">
-                <span className="text-sm hidden md:inline">{user.email}</span>
-                <button onClick={() => setManageMembersModalOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Manage Members">
-                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.653-.125-1.274-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.653.125-1.274.356-1.857m0 0a3.001 3.001 0 015.644 0M12 12a3 3 0 100-6 3 3 0 000 6z" /></svg>
-                </button>
-                <button onClick={() => setManageCategoriesModalOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Manage Categories">
-                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-                </button>
-                <button onClick={() => setBackupRestoreModalOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Backup and Restore">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                </button>
-                <button onClick={toggleTheme} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Toggle Theme">
-                {theme === 'light' ? 
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg> :
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
-                }
-                </button>
-                 <button onClick={() => signOut(auth)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Logout">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-                </button>
-            </div>
+            <button onClick={() => setManageCategoriesModalOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Manage Categories">
+               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+            </button>
+            <button onClick={() => setBackupRestoreModalOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Backup and Restore">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+            </button>
+            <button onClick={toggleTheme} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Toggle Theme">
+            {theme === 'light' ? 
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg> :
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+            }
+            </button>
+             <button onClick={() => signOut(auth)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Logout">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+            </button>
           </div>
         </div>
       </header>
@@ -239,6 +262,9 @@ function App() {
       </button>
 
       {/* Modals */}
+      <Modal isOpen={isAdminPanelOpen} onClose={() => setAdminPanelOpen(false)} title="Admin Panel">
+        <AdminDashboard />
+      </Modal>
       <AddTransactionModal 
         isOpen={isAddTransactionModalOpen}
         onClose={() => { setAddTransactionModalOpen(false); setEditingTransaction(null); }}
@@ -378,15 +404,17 @@ const ManageCategoriesModal: React.FC<{
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!name || !color) return;
+        if (!name.trim() || !color) return;
         
         if (editingCategory) {
-            onAddOrUpdate({ ...editingCategory, name, color });
+            onAddOrUpdate({ ...editingCategory, name: name.trim(), color });
         } else {
-            const iconKey = name.toUpperCase() as keyof typeof ICONS;
-            onAddOrUpdate({ name, color, icon: ICONS[iconKey] || ICONS.OTHER });
+            const iconKey = name.trim().toUpperCase() as keyof typeof ICONS;
+            onAddOrUpdate({ name: name.trim(), color, icon: ICONS[iconKey] || ICONS.OTHER });
         }
         setEditingCategory(null);
+        setName('');
+        setColor(COLORS[Math.floor(Math.random() * COLORS.length)]);
     }
 
     return (
@@ -443,13 +471,14 @@ const ManageMembersModal: React.FC<{
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!name) return;
+        if (!name.trim()) return;
         if(editingMember) {
-            onAddOrUpdate({ ...editingMember, name });
+            onAddOrUpdate({ ...editingMember, name: name.trim() });
         } else {
-            onAddOrUpdate({ name });
+            onAddOrUpdate({ name: name.trim() });
         }
         setEditingMember(null);
+        setName('');
     };
 
     return (
