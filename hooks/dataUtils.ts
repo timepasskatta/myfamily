@@ -1,4 +1,4 @@
-import { Transaction, Category, FamilyMember } from './types';
+import { Transaction, Category, FamilyMember } from '../types';
 
 export const exportToCsv = (transactions: Transaction[], categories: Category[], members: FamilyMember[]) => {
   const categoryMap = new Map(categories.map(c => [c.id, c.name]));

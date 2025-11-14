@@ -9,9 +9,9 @@ import { DEFAULT_CATEGORIES, COLORS, ICONS, DEFAULT_INCOME_CATEGORIES, DEFAULT_E
 import { Dashboard } from './components/Dashboard';
 import { TransactionsList } from './components/TransactionsList';
 import { Auth } from './components/Auth';
-import { AdminDashboard } from './components/AdminDashboard';
+import { AdminPage } from './components/AdminDashboard';
 import { PendingScreen, RejectedScreen, ExpiredScreen } from './components/UserStatusScreens';
-import { exportToCsv, exportToJson, importFromJson } from './utils/dataUtils';
+import { exportToCsv, exportToJson, importFromJson } from './hooks/dataUtils';
 
 // UI Components defined in the same file to reduce file count
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }> = ({ isOpen, onClose, title, children }) => {
@@ -44,7 +44,6 @@ function App() {
   const [isManageCategoriesModalOpen, setManageCategoriesModalOpen] = useState(false);
   const [isManageMembersModalOpen, setManageMembersModalOpen] = useState(false);
   const [isBackupRestoreModalOpen, setBackupRestoreModalOpen] = useState(false);
-  const [isAdminPanelOpen, setAdminPanelOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [showMigrationPrompt, setShowMigrationPrompt] = useState(false);
 
@@ -239,8 +238,8 @@ function App() {
     case 'expired':
       return <ExpiredScreen />;
     case 'admin':
+      return <AdminPage user={user!} />;
     case 'approved':
-      // User is approved or is the admin, show the main app
       break; // fallthrough to render the app
     default:
        return (
@@ -266,11 +265,6 @@ function App() {
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-primary">Family Expense<br className="block sm:hidden" /> Tracker</h1>
           <div className="flex items-center space-x-1 sm:space-x-2">
-            {status === 'admin' && (
-               <button onClick={() => setAdminPanelOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Admin Panel">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-              </button>
-            )}
             <span className="text-sm hidden md:inline">{user?.email}</span>
             <button onClick={() => setManageMembersModalOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Manage Members">
                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.653-.125-1.274-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.653.125-1.274.356-1.857m0 0a3.001 3.001 0 015.644 0M12 12a3 3 0 100-6 3 3 0 000 6z" /></svg>
@@ -349,10 +343,6 @@ function App() {
         onExportJson={() => exportToJson(transactions, categories, members)}
         onRestore={handleRestore}
       />
-
-      <Modal isOpen={isAdminPanelOpen} onClose={() => setAdminPanelOpen(false)} title="Admin Panel">
-        <AdminDashboard />
-      </Modal>
 
     </div>
   );

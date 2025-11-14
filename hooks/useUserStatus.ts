@@ -3,7 +3,7 @@ import { db, auth } from '../firebaseConfig';
 import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { UserProfile, UserStatus } from '../types';
-import { ADMIN_UID } from '../adminConfig';
+import { ADMIN_EMAIL } from '../adminConfig';
 
 type CurrentStatus = 'loading' | 'no-auth' | 'admin' | 'approved' | 'pending' | 'rejected' | 'expired';
 
@@ -24,7 +24,7 @@ export function useUserStatus() {
       return;
     }
 
-    const isAdmin = user.uid === ADMIN_UID;
+    const isAdmin = user.email === ADMIN_EMAIL;
     if (isAdmin) {
       setStatus('admin');
       setProfile(null); 
