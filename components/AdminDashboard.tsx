@@ -84,7 +84,7 @@ export const AdminDashboard: React.FC = () => {
       setUpdateError(null);
     }
 
-    const renderUserList = (userList: UserProfile[], title: string) => (
+    const renderUserList = (userList: UserProfile[], title: string, listType: 'pending' | 'active' | 'expired' | 'rejected') => (
         <div>
             <h3 className="text-xl font-semibold mb-3 text-gray-800 dark:text-white">{title} ({userList.length})</h3>
             <div className="space-y-3 max-h-60 overflow-y-auto p-1">
@@ -93,8 +93,12 @@ export const AdminDashboard: React.FC = () => {
                         <div className="flex-grow min-w-0">
                             <p className="font-medium text-gray-900 dark:text-white truncate" title={user.email}>{user.email}</p>
                             <p className="text-xs text-gray-500 dark:text-gray-400 break-words">
-                                {user.status === UserStatus.APPROVED && (user.accessExpiresAt ? `Expires: ${new Date(user.accessExpiresAt).toLocaleDateString()}` : 'Lifetime Access')}
-                                {user.status !== UserStatus.APPROVED && `UID: ${user.id}`}
+                                {(listType === 'active' || listType === 'expired') && user.accessExpiresAt
+                                    ? `Expires: ${new Date(user.accessExpiresAt).toLocaleDateString()}`
+                                    : (listType === 'active' || listType === 'expired') && !user.accessExpiresAt
+                                        ? 'Lifetime Access'
+                                        : `UID: ${user.id}`
+                                }
                             </p>
                         </div>
                         <div className="flex items-center justify-end flex-wrap gap-2 flex-shrink-0 self-end sm:self-center">
@@ -104,14 +108,14 @@ export const AdminDashboard: React.FC = () => {
                                 <>
                                     {approvingUserId !== user.id && (
                                         <>
-                                            {user.status === UserStatus.PENDING && (
+                                            {listType === 'pending' && (
                                                 <>
                                                     <button onClick={() => startApproval(user.id)} className="px-3 py-1 text-sm bg-green-500 text-white rounded-md hover:bg-green-600">Approve</button>
                                                     <button onClick={() => handleReject(user.id)} className="px-3 py-1 text-sm bg-red-500 text-white rounded-md hover:bg-red-600">Reject</button>
                                                 </>
                                             )}
-                                            {user.status === UserStatus.APPROVED && <button onClick={() => handleRevoke(user.id)} className="px-3 py-1 text-sm bg-yellow-500 text-white rounded-md hover:bg-yellow-600">Revoke</button>}
-                                            {user.status === UserStatus.REJECTED && <button onClick={() => startApproval(user.id)} className="px-3 py-1 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600">Re-approve</button>}
+                                            {listType === 'active' && <button onClick={() => handleRevoke(user.id)} className="px-3 py-1 text-sm bg-yellow-500 text-white rounded-md hover:bg-yellow-600">Revoke</button>}
+                                            {(listType === 'rejected' || listType === 'expired') && <button onClick={() => startApproval(user.id)} className="px-3 py-1 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600">Re-approve</button>}
                                         </>
                                     )}
                                 </>
@@ -153,16 +157,22 @@ export const AdminDashboard: React.FC = () => {
     if(loading) return <p className="text-center">Loading users...</p>;
     if(error) return <p className="text-center text-red-500">{error}</p>;
 
+    const now = Date.now();
     const pendingUsers = users.filter(u => u.status === UserStatus.PENDING);
     const approvedUsers = users.filter(u => u.status === UserStatus.APPROVED);
     const rejectedUsers = users.filter(u => u.status === UserStatus.REJECTED);
 
+    const activeUsers = approvedUsers.filter(u => !u.accessExpiresAt || u.accessExpiresAt >= now);
+    const expiredUsers = approvedUsers.filter(u => u.accessExpiresAt && u.accessExpiresAt < now);
+
+
     return (
         <div className="space-y-6">
             {updateError && <p className="text-sm text-center font-medium text-red-500 p-2 bg-red-100 dark:bg-red-900/50 rounded-md">{updateError}</p>}
-            {renderUserList(pendingUsers, "Pending Approval")}
-            {renderUserList(approvedUsers, "Approved Users")}
-            {renderUserList(rejectedUsers, "Rejected/Revoked Users")}
+            {renderUserList(pendingUsers, "Pending Approval", 'pending')}
+            {renderUserList(activeUsers, "Active Users", 'active')}
+            {renderUserList(expiredUsers, "Expired Users", 'expired')}
+            {renderUserList(rejectedUsers, "Rejected/Revoked Users", 'rejected')}
         </div>
     );
 };
