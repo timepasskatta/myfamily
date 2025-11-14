@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Transaction, Category, TransactionType, FamilyMember } from '../types';
+import { ICONS } from '../constants';
 
 interface TransactionsListProps {
   transactions: Transaction[];
@@ -24,7 +25,7 @@ export const TransactionsList: React.FC<TransactionsListProps> = ({ transactions
       .filter(t => t.description.toLowerCase().includes(searchTerm.toLowerCase()))
       .filter(t => filterCategory === 'all' || t.categoryId === filterCategory)
       .filter(t => filterType === 'all' || t.type === filterType)
-      .filter(t => filterMember === 'all' || t.memberId === (filterMember === 'pool' ? undefined : filterMember));
+      .filter(t => filterMember === 'all' || t.memberId === (filterMember === 'home' ? undefined : filterMember));
     
     return filtered.sort((a, b) => {
       switch(sortOrder) {
@@ -40,34 +41,34 @@ export const TransactionsList: React.FC<TransactionsListProps> = ({ transactions
 
   const TransactionRow: React.FC<{ transaction: Transaction }> = ({ transaction }) => {
     const category = categoryMap.get(transaction.categoryId);
-    const memberName = transaction.memberId ? memberMap.get(transaction.memberId) : 'Family Pool';
+    const memberName = transaction.memberId ? memberMap.get(transaction.memberId) : 'Home Balance';
     const isExpense = transaction.type === TransactionType.EXPENSE;
 
     return (
-      <div className="flex items-start sm:items-center p-4 bg-white dark:bg-slate-800 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors duration-200 gap-4">
+      <div className="flex items-center p-3 sm:p-4 bg-white dark:bg-slate-800 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors duration-200 gap-3 sm:gap-4">
         {/* Icon */}
-        <div className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center mt-1 sm:mt-0" style={{ backgroundColor: category?.color + '20', color: category?.color }}>
-          {category?.icon}
+        <div className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center" style={{ backgroundColor: category?.color + '20', color: category?.color }}>
+          {category ? ICONS[category.icon] || ICONS.OTHER : ICONS.OTHER}
         </div>
         
-        {/* Middle Section: Info (Description, Category, Date) */}
-        <div className="flex-grow grid sm:grid-cols-2 gap-x-4 items-center">
+        {/* Middle Section: Info */}
+        <div className="flex-grow grid grid-cols-1 sm:grid-cols-2 gap-x-4 items-center min-w-0">
             <div className="min-w-0">
                 <p className="font-semibold text-gray-800 dark:text-white truncate" title={transaction.description}>{transaction.description || 'No Description'}</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
+                <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
                   {category?.name || 'Uncategorized'} &bull; <span className="font-medium">{memberName || ''}</span>
                 </p>
             </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 sm:mt-0 sm:text-right">{new Date(transaction.date).toLocaleDateString('en-CA')}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 sm:mt-0 sm:text-right sm:justify-self-end">{new Date(transaction.date).toLocaleDateString('en-CA')}</p>
         </div>
 
         {/* Right Section: Amount & Actions */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 items-end">
-            <p className={`font-semibold text-base whitespace-nowrap ${isExpense ? 'text-red-500' : 'text-green-500'}`}>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 ml-auto pl-2">
+            <p className={`font-semibold text-base whitespace-nowrap text-right ${isExpense ? 'text-red-500' : 'text-green-500'}`}>
               {isExpense ? '-' : '+'}
               {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(transaction.amount)}
             </p>
-            <div className="flex items-center">
+            <div className="flex items-center self-end sm:self-center">
               <button onClick={() => onEdit(transaction)} className="p-2 text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors" aria-label="Edit Transaction">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z" /></svg>
               </button>
@@ -96,7 +97,7 @@ export const TransactionsList: React.FC<TransactionsListProps> = ({ transactions
         </select>
         <select value={filterMember} onChange={e => setFilterMember(e.target.value)} className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent">
           <option value="all">All Members</option>
-          <option value="pool">Family Pool</option>
+          <option value="home">Home Balance</option>
           {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
         </select>
         <select value={sortOrder} onChange={e => setSortOrder(e.target.value)} className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent">

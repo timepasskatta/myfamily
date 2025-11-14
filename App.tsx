@@ -5,7 +5,7 @@ import { useFirestoreCollection } from './hooks/useFirestoreCollection';
 import { useUserStatus } from './hooks/useUserStatus';
 
 import { Category, Transaction, TransactionType, FamilyMember } from './types';
-import { DEFAULT_CATEGORIES, COLORS, ICONS } from './constants';
+import { DEFAULT_CATEGORIES, COLORS, ICONS, DEFAULT_INCOME_CATEGORIES, DEFAULT_EXPENSE_CATEGORIES } from './constants';
 import { Dashboard } from './components/Dashboard';
 import { TransactionsList } from './components/TransactionsList';
 import { Auth } from './components/Auth';
@@ -17,8 +17,8 @@ import { exportToCsv, exportToJson, importFromJson } from './utils/dataUtils';
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }> = ({ isOpen, onClose, title, children }) => {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center" onClick={onClose}>
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-8 w-full max-w-md m-4 transform transition-all" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8 w-full max-w-md m-4 transform transition-all" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-800 dark:text-white">{title}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
@@ -66,22 +66,40 @@ function App() {
         setShowMigrationPrompt(true);
       } else if (categories.length === 0) {
         // If no local data and no remote data, seed with defaults
-        addCategoriesBatch(DEFAULT_CATEGORIES.map(({id, ...rest}) => rest));
+        addCategoriesBatch(DEFAULT_CATEGORIES);
+        // Add a default member if none exist
+        if (members.length === 0) {
+          addMemberDoc({ name: "Default Member" });
+        }
       }
     }
-  }, [user, categories, categoriesLoading, addCategoriesBatch]);
+  }, [user, categories, categoriesLoading, addCategoriesBatch, members, addMemberDoc]);
 
 
   const handleMigration = () => {
     try {
       const localTransactions: Transaction[] = JSON.parse(localStorage.getItem('transactions') || '[]');
-      const localCategories: Category[] = JSON.parse(localStorage.getItem('categories') || '[]');
+      // This type assertion is needed because old local categories don't have the new fields
+      const localCategories: any[] = JSON.parse(localStorage.getItem('categories') || '[]');
       
       if (localTransactions.length > 0) {
         addTransactionsBatch(localTransactions.map(({id, ...rest}) => rest));
       }
       if (localCategories.length > 0) {
-        const sanitizedCategories = localCategories.map(({id, ...c}) => ({...c, icon: ICONS[c.name.toUpperCase() as keyof typeof ICONS] || ICONS.OTHER }));
+          const iconKeys = Object.keys(ICONS);
+          // FIX: Explicitly type `sanitizedCategories` to ensure the `type` property is correctly
+          // inferred as '"income" | "expense"' instead of the wider `string` type, resolving the
+          // assignment error when calling `addCategoriesBatch`.
+          const sanitizedCategories: Omit<Category, 'id'>[] = localCategories.map(({ id, ...c }) => {
+          const iconKey = String(c.name).toUpperCase().replace(/\s+/g, '_');
+          const isIncome = ['SALARY', 'GIFTS', 'INVESTMENT'].includes(iconKey);
+          return {
+              name: c.name,
+              color: c.color,
+              icon: iconKeys.includes(iconKey) ? iconKey : 'OTHER',
+              type: isIncome ? 'income' : 'expense'
+          };
+        });
         addCategoriesBatch(sanitizedCategories);
       }
       
@@ -128,8 +146,6 @@ function App() {
     } else {
       addCategoryDoc(category);
     }
-    // Bug Fix: Clear form after submission
-    // This logic is now handled inside the ManageCategoriesModal component
   };
   
   const handleDeleteCategory = (id: string) => {
@@ -143,14 +159,16 @@ function App() {
   }
 
   const handleAddOrUpdateMember = (member: Omit<FamilyMember, 'id'> | FamilyMember) => {
+    if (member.name.toLowerCase() === 'home balance') {
+        alert('"Home Balance" is a default member and cannot be modified.');
+        return;
+    }
     if ('id' in member) {
       const { id, ...dataToUpdate } = member;
       updateMember(id, dataToUpdate);
     } else {
       addMemberDoc(member);
     }
-    // Bug Fix: Clear form after submission
-    // This logic is now handled inside the ManageMembersModal component
   };
 
   const handleDeleteMember = (id: string) => {
@@ -166,17 +184,30 @@ function App() {
   const handleRestore = (file: File) => {
     importFromJson(file, (data) => {
         if(window.confirm('This will add data from the backup file to your account. It will not replace or delete existing data. Continue?')) {
-            const sanitizedCategories = data.categories.map(c => ({...c, icon: ICONS[c.name.toUpperCase() as keyof typeof ICONS] || ICONS.OTHER }));
+            const iconKeys = Object.keys(ICONS);
+            const sanitizedCategories = data.categories.map((c: any) => {
+              const iconKey = String(c.name).toUpperCase().replace(/\s+/g, '_');
+              const isIncome = DEFAULT_INCOME_CATEGORIES.some(def => def.name === c.name);
+              return {
+                name: c.name,
+                color: c.color,
+                icon: iconKeys.includes(iconKey) ? iconKey : 'OTHER',
+                type: c.type || (isIncome ? 'income' : 'expense'),
+              }
+            });
             
             const promises = [];
             if (data.transactions.length > 0) {
               promises.push(addTransactionsBatch(data.transactions.map(({id, ...rest}) => rest)));
             }
             if (sanitizedCategories.length > 0) {
-              promises.push(addCategoriesBatch(sanitizedCategories.map(({id, ...rest}) => rest)));
+              promises.push(addCategoriesBatch(sanitizedCategories));
             }
             if (data.members && data.members.length > 0) {
-              promises.push(addMembersBatch(data.members.map(({id, ...rest}) => rest)));
+              const membersToAdd = data.members.filter(m => m.name.toLowerCase() !== 'home balance');
+              if (membersToAdd.length > 0) {
+                promises.push(addMembersBatch(membersToAdd.map(({id, ...rest}) => rest)));
+              }
             }
 
             Promise.all(promises).then(() => {
@@ -219,7 +250,6 @@ function App() {
       )
   }
 
-
   return (
     <div className="min-h-screen text-gray-800 dark:text-gray-200 bg-gray-50 dark:bg-slate-900 transition-colors duration-300">
       {showMigrationPrompt && (
@@ -246,48 +276,56 @@ function App() {
                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.653-.125-1.274-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.653.125-1.274.356-1.857m0 0a3.001 3.001 0 015.644 0M12 12a3 3 0 100-6 3 3 0 000 6z" /></svg>
             </button>
             <button onClick={() => setManageCategoriesModalOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Manage Categories">
-               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-            </button>
-            <button onClick={() => setBackupRestoreModalOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Backup and Restore">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2H7a2 2 0 00-2 2v2m14 0H5" /></svg>
             </button>
             <button onClick={toggleTheme} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Toggle Theme">
-            {theme === 'light' ? 
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg> :
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
-            }
+              {theme === 'light' ? <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>}
             </button>
-             <button onClick={() => signOut(auth)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Logout">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+             <button onClick={() => setBackupRestoreModalOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Backup and Restore">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+            </button>
+            <button onClick={() => signOut(auth)} className="p-2 rounded-full hover:bg-red-100 dark:hover:bg-red-800 text-red-500 transition-colors" aria-label="Sign Out">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
             </button>
           </div>
         </div>
       </header>
+      
       <main className="container mx-auto p-4 sm:p-6 lg:p-8">
-        {(transactionsLoading || categoriesLoading || membersLoading) ? <p>Loading data...</p> : (
+         {transactionsLoading || categoriesLoading || membersLoading ? (
+            <div className="text-center py-10"><p>Loading data...</p></div>
+         ) : (
             <>
-                <Dashboard transactions={transactions} categories={categories} members={members} />
-                <TransactionsList transactions={transactions} categories={categories} members={members} onEdit={handleEditTransaction} onDelete={handleDeleteTransaction}/>
+              <Dashboard transactions={transactions} categories={categories} members={members} />
+              <div className="mt-8">
+                <button
+                  onClick={() => { setEditingTransaction(null); setAddTransactionModalOpen(true); }}
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-primary text-white font-semibold rounded-lg shadow-lg hover:opacity-90 transition-opacity"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                  Add Transaction
+                </button>
+              </div>
+              <TransactionsList 
+                transactions={transactions} 
+                categories={categories} 
+                members={members}
+                onEdit={handleEditTransaction} 
+                onDelete={handleDeleteTransaction}
+              />
             </>
-        )}
+         )}
       </main>
 
-       <button onClick={() => setAddTransactionModalOpen(true)} className="sm:hidden fixed bottom-6 right-6 bg-primary text-white p-4 rounded-full shadow-lg z-30" aria-label="Add Transaction">
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
-      </button>
-
-      {/* Modals */}
-      <Modal isOpen={isAdminPanelOpen} onClose={() => setAdminPanelOpen(false)} title="Admin Panel">
-        <AdminDashboard />
-      </Modal>
-      <AddTransactionModal 
+      <TransactionFormModal 
         isOpen={isAddTransactionModalOpen}
         onClose={() => { setAddTransactionModalOpen(false); setEditingTransaction(null); }}
         onSubmit={handleAddOrUpdateTransaction}
+        transaction={editingTransaction}
         categories={categories}
         members={members}
-        transaction={editingTransaction}
       />
+      
       <ManageCategoriesModal 
         isOpen={isManageCategoriesModalOpen}
         onClose={() => setManageCategoriesModalOpen(false)}
@@ -295,6 +333,7 @@ function App() {
         onAddOrUpdate={handleAddOrUpdateCategory}
         onDelete={handleDeleteCategory}
       />
+      
       <ManageMembersModal
         isOpen={isManageMembersModalOpen}
         onClose={() => setManageMembersModalOpen(false)}
@@ -302,6 +341,7 @@ function App() {
         onAddOrUpdate={handleAddOrUpdateMember}
         onDelete={handleDeleteMember}
       />
+
       <BackupRestoreModal 
         isOpen={isBackupRestoreModalOpen}
         onClose={() => setBackupRestoreModalOpen(false)}
@@ -309,160 +349,201 @@ function App() {
         onExportJson={() => exportToJson(transactions, categories, members)}
         onRestore={handleRestore}
       />
+
+      <Modal isOpen={isAdminPanelOpen} onClose={() => setAdminPanelOpen(false)} title="Admin Panel">
+        <AdminDashboard />
+      </Modal>
+
     </div>
   );
 }
 
-
-// Transaction Modal Component
-const AddTransactionModal: React.FC<{ isOpen: boolean; onClose: () => void; onSubmit: (data: any) => void; categories: Category[]; members: FamilyMember[]; transaction: Transaction | null; }> = ({ isOpen, onClose, onSubmit, categories, members, transaction }) => {
+// Sub-components
+const TransactionFormModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (transaction: Omit<Transaction, 'id'> & { id?: string }) => void;
+  transaction: Transaction | null;
+  categories: Category[];
+  members: FamilyMember[];
+}> = ({ isOpen, onClose, onSubmit, transaction, categories, members }) => {
   const [type, setType] = useState<TransactionType>(TransactionType.EXPENSE);
   const [amount, setAmount] = useState('');
   const [categoryId, setCategoryId] = useState('');
-  const [memberId, setMemberId] = useState<string | undefined>(undefined);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');
+  const [memberId, setMemberId] = useState<string>(''); // Empty string for 'Home Balance'
 
   useEffect(() => {
     if (transaction) {
       setType(transaction.type);
       setAmount(String(transaction.amount));
       setCategoryId(transaction.categoryId);
-      setMemberId(transaction.memberId);
       setDate(transaction.date);
       setDescription(transaction.description);
+      setMemberId(transaction.memberId || '');
     } else {
-      // Reset form
       setType(TransactionType.EXPENSE);
       setAmount('');
-      setCategoryId(categories.length > 0 ? categories[0].id : '');
-      setMemberId(undefined);
+      setCategoryId('');
       setDate(new Date().toISOString().split('T')[0]);
       setDescription('');
+      setMemberId('');
     }
-  }, [transaction, isOpen, categories]);
+  }, [transaction, isOpen]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!amount || !categoryId || !date) {
-      alert('Please fill all required fields');
+      alert('Please fill out all required fields.');
       return;
     }
-    onSubmit({ id: transaction?.id, type, amount: parseFloat(amount), categoryId, date, description, memberId });
+    onSubmit({
+      id: transaction?.id,
+      type,
+      amount: parseFloat(amount),
+      categoryId,
+      date,
+      description,
+      memberId: memberId || undefined
+    });
   };
+
+  const filteredCategories = categories.filter(c => c.type === type);
   
-  const incomeCategoryNames = ['Salary', 'Gifts', 'Other'];
-  const filteredCategories = categories.filter(c => (type === 'income' ? incomeCategoryNames.includes(c.name) : true));
+  // Reset category if type changes and selected category is no longer valid
+  useEffect(() => {
+    if(!filteredCategories.some(c => c.id === categoryId)) {
+      setCategoryId('');
+    }
+  }, [type, filteredCategories, categoryId]);
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={transaction ? 'Edit Transaction' : 'Add Transaction'}>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="flex bg-gray-100 dark:bg-slate-700 rounded-lg p-1">
-          <button type="button" onClick={() => setType(TransactionType.EXPENSE)} className={`w-1/2 p-2 rounded-md font-semibold transition-colors ${type === 'expense' ? 'bg-white dark:bg-primary shadow text-primary dark:text-white' : 'text-gray-600 dark:text-gray-300'}`}>Expense</button>
-          <button type="button" onClick={() => setType(TransactionType.INCOME)} className={`w-1/2 p-2 rounded-md font-semibold transition-colors ${type === 'income' ? 'bg-white dark:bg-primary shadow text-primary dark:text-white' : 'text-gray-600 dark:text-gray-300'}`}>Income</button>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="grid grid-cols-2 gap-4">
+          <button type="button" onClick={() => setType(TransactionType.EXPENSE)} className={`p-3 rounded-lg font-semibold transition-colors ${type === TransactionType.EXPENSE ? 'bg-red-500 text-white' : 'bg-gray-100 dark:bg-slate-700'}`}>Expense</button>
+          <button type="button" onClick={() => setType(TransactionType.INCOME)} className={`p-3 rounded-lg font-semibold transition-colors ${type === TransactionType.INCOME ? 'bg-green-500 text-white' : 'bg-gray-100 dark:bg-slate-700'}`}>Income</button>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount</label>
-          <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" required className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent" />
-        </div>
-         <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
-              <select value={categoryId} onChange={e => setCategoryId(e.target.value)} required className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent">
-                <option value="">Select Category</option>
-                {filteredCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Member</label>
-              <select value={memberId || ''} onChange={e => setMemberId(e.target.value || undefined)} className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent">
-                <option value="">Family Pool</option>
-                {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </div>
+          <label htmlFor="amount" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Amount</label>
+          <input type="number" id="amount" value={amount} onChange={e => setAmount(e.target.value)} required className="mt-1 block w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-3 focus:ring-2 focus:ring-primary focus:border-transparent" placeholder="0.00" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Date</label>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} required className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent" />
+          <label htmlFor="category" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category</label>
+          <select id="category" value={categoryId} onChange={e => setCategoryId(e.target.value)} required className="mt-1 block w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-3 focus:ring-2 focus:ring-primary focus:border-transparent">
+            <option value="" disabled>Select a category</option>
+            {filteredCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
-          <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g., Weekly groceries" className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent" />
+          <label htmlFor="member" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Member</label>
+          <select id="member" value={memberId} onChange={e => setMemberId(e.target.value)} className="mt-1 block w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-3 focus:ring-2 focus:ring-primary focus:border-transparent">
+            <option value="">Home Balance</option>
+            {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
         </div>
-        <button type="submit" className="w-full bg-primary text-white p-3 rounded-lg font-semibold hover:opacity-90 transition-opacity">{transaction ? 'Update' : 'Add'} Transaction</button>
+        <div>
+          <label htmlFor="date" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Date</label>
+          <input type="date" id="date" value={date} onChange={e => setDate(e.target.value)} required className="mt-1 block w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-3 focus:ring-2 focus:ring-primary focus:border-transparent" style={{ colorScheme: 'dark' }} />
+        </div>
+        <div>
+          <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
+          <textarea id="description" value={description} onChange={e => setDescription(e.target.value)} rows={3} className="mt-1 block w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-3 focus:ring-2 focus:ring-primary focus:border-transparent" placeholder="e.g., Weekly groceries"></textarea>
+        </div>
+        <div className="flex justify-end gap-4">
+          <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 dark:bg-slate-600 font-semibold rounded-lg hover:opacity-90">Cancel</button>
+          <button type="submit" className="px-6 py-2 bg-primary text-white font-semibold rounded-lg hover:opacity-90">{transaction ? 'Update' : 'Save'}</button>
+        </div>
       </form>
     </Modal>
   );
 };
 
-const ManageCategoriesModal: React.FC<{ 
-    isOpen: boolean; 
-    onClose: () => void; 
+const ManageCategoriesModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
     categories: Category[];
-    onAddOrUpdate: (category: Omit<Category, 'id'> | Category) => void; 
-    onDelete: (id: string) => void; 
-}> = ({isOpen, onClose, categories, onAddOrUpdate, onDelete}) => {
-    const [name, setName] = useState('');
-    const [color, setColor] = useState(COLORS[0]);
-    const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+    onAddOrUpdate: (category: Omit<Category, 'id'> | Category) => void;
+    onDelete: (id: string) => void;
+}> = ({ isOpen, onClose, categories, onAddOrUpdate, onDelete }) => {
+    const [newCategoryName, setNewCategoryName] = useState('');
+    const [newCategoryColor, setNewCategoryColor] = useState(COLORS[0]);
+    const [newCategoryIcon, setNewCategoryIcon] = useState(Object.keys(ICONS)[0]);
+    const [newCategoryType, setNewCategoryType] = useState<'income' | 'expense'>('expense');
 
-    useEffect(() => {
-      if (editingCategory) {
-        setName(editingCategory.name);
-        setColor(editingCategory.color);
-      } else {
-        setName('');
-        setColor(COLORS[Math.floor(Math.random() * COLORS.length)]);
-      }
-    }, [editingCategory, isOpen]);
-
-
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleAddCategory = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!name.trim() || !color) return;
-        
-        if (editingCategory) {
-            onAddOrUpdate({ ...editingCategory, name: name.trim(), color });
-        } else {
-            const iconKey = name.trim().toUpperCase() as keyof typeof ICONS;
-            onAddOrUpdate({ name: name.trim(), color, icon: ICONS[iconKey] || ICONS.OTHER });
+        if (!newCategoryName) {
+            alert("Please enter a category name.");
+            return;
         }
-        setEditingCategory(null);
-        setName('');
-        setColor(COLORS[Math.floor(Math.random() * COLORS.length)]);
+        onAddOrUpdate({ 
+          name: newCategoryName,
+          color: newCategoryColor,
+          icon: newCategoryIcon,
+          type: newCategoryType,
+        });
+        setNewCategoryName('');
+        setNewCategoryColor(COLORS[0]);
+        setNewCategoryIcon(Object.keys(ICONS)[0]);
+    };
+    
+    const renderCategoryList = (type: 'income' | 'expense') => {
+        const filtered = categories.filter(c => c.type === type);
+        return (
+            <div className="space-y-2">
+                {filtered.map(c => (
+                    <div key={c.id} className="flex items-center justify-between p-2 bg-gray-100 dark:bg-slate-700 rounded-md">
+                        <div className="flex items-center gap-3">
+                            <span className="h-8 w-8 rounded-full flex items-center justify-center" style={{ backgroundColor: c.color + '30', color: c.color }}>{ICONS[c.icon]}</span>
+                            <span className="font-medium">{c.name}</span>
+                        </div>
+                        <button onClick={() => onDelete(c.id)} className="p-1 text-gray-400 hover:text-red-500">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                ))}
+                {filtered.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">No {type} categories yet.</p>}
+            </div>
+        );
     }
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Manage Categories">
-            <div className="space-y-4">
-                <form onSubmit={handleSubmit} className="space-y-3 pb-4 border-b dark:border-slate-700">
-                    <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Category name" required className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent"/>
-                    <div className="flex items-center space-x-2">
-                      <label htmlFor="color-picker" className="text-sm font-medium text-gray-700 dark:text-gray-300">Color:</label>
-                      <input id="color-picker" type="color" value={color} onChange={e => setColor(e.target.value)} className="w-10 h-10 rounded-md p-0 border-none cursor-pointer bg-transparent" />
-                      <div className="flex-grow flex items-center space-x-2 justify-end">
-                        {editingCategory && <button type="button" onClick={() => setEditingCategory(null)} className="bg-gray-200 dark:bg-slate-600 text-black dark:text-white px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">Cancel</button>}
-                        <button type="submit" className="bg-primary text-white px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">{editingCategory ? 'Update' : 'Add'}</button>
-                      </div>
-                    </div>
-                </form>
-                <div className="max-h-60 overflow-y-auto space-y-2">
-                    {categories.map(c => (
-                        <div key={c.id} className="flex items-center justify-between p-2 rounded-md bg-gray-50 dark:bg-slate-700">
-                            <div className="flex items-center space-x-3">
-                                <span className="w-6 h-6 rounded-full flex-shrink-0" style={{backgroundColor: c.color}}></span>
-                                <span>{c.name}</span>
-                            </div>
-                            <div className='flex items-center'>
-                                <button onClick={() => setEditingCategory(c)} className="p-2 text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z" /></svg>
-                                </button>
-                                <button onClick={() => onDelete(c.id)} className="p-2 text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors">
-                                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                </button>
-                            </div>
+            <div className="space-y-6">
+                <div>
+                    <h3 className="font-semibold text-lg mb-2 text-gray-700 dark:text-gray-200">Add New Category</h3>
+                    <form onSubmit={handleAddCategory} className="p-4 bg-gray-50 dark:bg-slate-700/50 rounded-lg space-y-4">
+                         <div className="grid grid-cols-2 gap-2">
+                            <button type="button" onClick={() => setNewCategoryType('expense')} className={`p-2 rounded-lg text-sm font-semibold ${newCategoryType === 'expense' ? 'bg-red-500 text-white' : 'bg-gray-200 dark:bg-slate-600'}`}>Expense</button>
+                            <button type="button" onClick={() => setNewCategoryType('income')} className={`p-2 rounded-lg text-sm font-semibold ${newCategoryType === 'income' ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-slate-600'}`}>Income</button>
                         </div>
-                    ))}
+                        <input
+                            type="text"
+                            value={newCategoryName}
+                            onChange={e => setNewCategoryName(e.target.value)}
+                            placeholder="Category Name"
+                            className="w-full bg-white dark:bg-slate-600 border-gray-300 dark:border-slate-500 rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent"
+                        />
+                        <div className="grid grid-cols-2 gap-4">
+                          <select value={newCategoryIcon} onChange={e => setNewCategoryIcon(e.target.value)} className="w-full bg-white dark:bg-slate-600 border-gray-300 dark:border-slate-500 rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent">
+                            {Object.keys(ICONS).map(iconKey => <option key={iconKey} value={iconKey}>{iconKey.charAt(0) + iconKey.slice(1).toLowerCase()}</option>)}
+                          </select>
+                           <input type="color" value={newCategoryColor} onChange={e => setNewCategoryColor(e.target.value)} className="w-full h-10 p-1 bg-white dark:bg-slate-600 border-gray-300 dark:border-slate-500 rounded-md cursor-pointer"/>
+                        </div>
+                        <button type="submit" className="w-full px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:opacity-90">Add Category</button>
+                    </form>
+                </div>
+                <div className="space-y-4">
+                    <div>
+                      <h3 className="font-semibold text-lg mb-2 text-green-600 dark:text-green-400">Income Categories</h3>
+                      {renderCategoryList('income')}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-lg mb-2 text-red-600 dark:text-red-400">Expense Categories</h3>
+                      {renderCategoryList('expense')}
+                    </div>
                 </div>
             </div>
         </Modal>
@@ -470,90 +551,100 @@ const ManageCategoriesModal: React.FC<{
 };
 
 const ManageMembersModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    members: FamilyMember[];
+    onAddOrUpdate: (member: Omit<FamilyMember, 'id'> | FamilyMember) => void;
+    onDelete: (id: string) => void;
+}> = ({ isOpen, onClose, members, onAddOrUpdate, onDelete }) => {
+    const [newMemberName, setNewMemberName] = useState('');
+
+    const handleAddMember = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newMemberName.trim()) {
+            alert("Please enter a member name.");
+            return;
+        }
+        onAddOrUpdate({ name: newMemberName.trim() });
+        setNewMemberName('');
+    };
+    
+    return (
+      <Modal isOpen={isOpen} onClose={onClose} title="Manage Members">
+        <div className="space-y-6">
+            <div>
+              <h3 className="font-semibold text-lg mb-2 text-gray-700 dark:text-gray-200">Add New Member</h3>
+              <form onSubmit={handleAddMember} className="flex gap-2">
+                  <input
+                      type="text"
+                      value={newMemberName}
+                      onChange={(e) => setNewMemberName(e.target.value)}
+                      placeholder="Member Name"
+                      className="flex-grow bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent"
+                  />
+                  <button type="submit" className="px-4 py-2 bg-primary text-white font-semibold rounded-lg hover:opacity-90">Add</button>
+              </form>
+            </div>
+            <div>
+              <h3 className="font-semibold text-lg mb-2 text-gray-700 dark:text-gray-200">Existing Members</h3>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between p-2 bg-gray-100 dark:bg-slate-700 rounded-md">
+                    <span className="font-medium text-gray-500 dark:text-gray-400">Home Balance (Default)</span>
+                </div>
+                {members.map(m => (
+                    <div key={m.id} className="flex items-center justify-between p-2 bg-gray-100 dark:bg-slate-700 rounded-md">
+                        <span className="font-medium">{m.name}</span>
+                        <button onClick={() => onDelete(m.id)} className="p-1 text-gray-400 hover:text-red-500">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                ))}
+              </div>
+            </div>
+        </div>
+      </Modal>
+    );
+}
+
+const BackupRestoreModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
-  members: FamilyMember[];
-  onAddOrUpdate: (member: Omit<FamilyMember, 'id'> | FamilyMember) => void;
-  onDelete: (id: string) => void;
-}> = ({ isOpen, onClose, members, onAddOrUpdate, onDelete }) => {
-    const [name, setName] = useState('');
-    const [editingMember, setEditingMember] = useState<FamilyMember | null>(null);
+  onExportCsv: () => void;
+  onExportJson: () => void;
+  onRestore: (file: File) => void;
+}> = ({ isOpen, onClose, onExportCsv, onExportJson, onRestore }) => {
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-    useEffect(() => {
-        if(editingMember) setName(editingMember.name);
-        else setName('');
-    }, [editingMember, isOpen]);
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!name.trim()) return;
-        if(editingMember) {
-            onAddOrUpdate({ ...editingMember, name: name.trim() });
-        } else {
-            onAddOrUpdate({ name: name.trim() });
-        }
-        setEditingMember(null);
-        setName('');
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Manage Family Members">
-            <div className="space-y-4">
-                <form onSubmit={handleSubmit} className="space-y-3 pb-4 border-b dark:border-slate-700">
-                    <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Member name" required className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent"/>
-                    <div className="flex justify-end space-x-2">
-                        {editingMember && <button type="button" onClick={() => setEditingMember(null)} className="bg-gray-200 dark:bg-slate-600 text-black dark:text-white px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">Cancel</button>}
-                        <button type="submit" className="bg-primary text-white px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">{editingMember ? 'Update' : 'Add'}</button>
-                    </div>
-                </form>
-                <div className="max-h-60 overflow-y-auto space-y-2">
-                    {members.map(m => (
-                        <div key={m.id} className="flex items-center justify-between p-2 rounded-md bg-gray-50 dark:bg-slate-700">
-                           <span>{m.name}</span>
-                            <div className='flex items-center'>
-                                <button onClick={() => setEditingMember(m)} className="p-2 text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z" /></svg>
-                                </button>
-                                <button onClick={() => onDelete(m.id)} className="p-2 text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors">
-                                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        </Modal>
-    )
-}
-
-const BackupRestoreModal: React.FC<{isOpen: boolean, onClose: () => void, onExportCsv: () => void, onExportJson: () => void, onRestore: (file: File) => void }> = ({isOpen, onClose, onExportCsv, onExportJson, onRestore}) => {
-    const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if(e.target.files && e.target.files[0]) {
-            onRestore(e.target.files[0]);
-            e.target.value = ''; // Reset file input
-        }
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      onRestore(file);
     }
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Backup & Restore">
-            <div className="space-y-6">
-                <div>
-                    <h3 className="font-semibold mb-2 text-lg dark:text-gray-200">Export Data</h3>
-                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
-                        <button onClick={onExportCsv} className="w-full text-center bg-green-500 text-white p-3 rounded-lg font-semibold hover:bg-green-600 transition-colors">Export as CSV</button>
-                        <button onClick={onExportJson} className="w-full text-center bg-blue-500 text-white p-3 rounded-lg font-semibold hover:bg-blue-600 transition-colors">Backup as JSON</button>
-                    </div>
-                </div>
-                <div>
-                    <h3 className="font-semibold mb-2 text-lg dark:text-gray-200">Restore Data from JSON</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">This will add the data from the backup file to your account. It will not delete existing data.</p>
-                    <input type="file" accept=".json" onChange={handleFileChange} ref={fileInputRef} className="hidden" />
-                    <button onClick={() => fileInputRef.current?.click()} className="w-full text-center bg-orange-500 text-white p-3 rounded-lg font-semibold hover:bg-orange-600 transition-colors">Restore from JSON</button>
-                </div>
-            </div>
-        </Modal>
-    )
-}
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Backup & Restore">
+      <div className="space-y-6">
+        <div>
+          <h3 className="font-semibold text-lg mb-2 text-gray-700 dark:text-gray-200">Backup Data</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Export all your transactions, categories, and members into a file.</p>
+          <div className="flex gap-4">
+            <button onClick={onExportJson} className="flex-1 px-4 py-2 bg-blue-500 text-white font-semibold rounded-lg hover:bg-blue-600">Export as JSON</button>
+            <button onClick={onExportCsv} className="flex-1 px-4 py-2 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600">Export as CSV</button>
+          </div>
+        </div>
+        <div>
+          <h3 className="font-semibold text-lg mb-2 text-gray-700 dark:text-gray-200">Restore Data</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Import data from a JSON backup file. This will add the data to your existing records.</p>
+          <input type="file" accept=".json" onChange={handleFileChange} ref={fileInputRef} className="hidden" />
+          <button onClick={() => fileInputRef.current?.click()} className="w-full px-4 py-2 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700">
+            Import from JSON
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
 
 export default App;

@@ -1,4 +1,3 @@
-
 import { Transaction, Category, FamilyMember } from './types';
 
 export const exportToCsv = (transactions: Transaction[], categories: Category[], members: FamilyMember[]) => {
@@ -8,7 +7,7 @@ export const exportToCsv = (transactions: Transaction[], categories: Category[],
   csvContent += "Date,Type,Description,Category,Member,Amount\n";
 
   transactions.forEach(t => {
-    const memberName = t.memberId ? memberMap.get(t.memberId) : 'Family Pool';
+    const memberName = t.memberId ? memberMap.get(t.memberId) : 'Home Balance';
     const row = [
       t.date,
       t.type,

@@ -11,9 +11,8 @@ export interface Category {
   id: string;
   name: string;
   color: string;
-  // Fix for "Cannot find namespace 'JSX'". Using React.ReactElement is more explicit
-  // and can resolve issues where the global JSX namespace isn't picked up correctly.
-  icon: React.ReactElement;
+  icon: string; // Storing the key of the icon, not the element
+  type: 'income' | 'expense';
 }
 
 export interface FamilyMember {
