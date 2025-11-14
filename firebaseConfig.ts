@@ -13,7 +13,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyB3u6Hs5GW80ThskrMZcs7lkMVpxEffjBY",
   authDomain: "finaltkapp.firebaseapp.com",
   projectId: "finaltkapp",
-  storageBucket: "finaltkapp.appspot.com",
+  storageBucket: "finaltkapp.firebasestorage.app",
   messagingSenderId: "623724926387",
   appId: "1:623724926387:web:205147d622f683c7fe67c6",
   measurementId: "G-G8XHTVK9W5"

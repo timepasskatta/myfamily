@@ -4,7 +4,7 @@ import { auth } from './firebaseConfig';
 import { signOut } from 'firebase/auth';
 import { useFirestoreCollection } from './hooks/useFirestoreCollection';
 
-import { Category, Transaction, TransactionType } from './types';
+import { Category, Transaction, TransactionType, FamilyMember } from './types';
 import { DEFAULT_CATEGORIES, COLORS, ICONS } from './constants';
 import { Dashboard } from './components/Dashboard';
 import { TransactionsList } from './components/TransactionsList';
@@ -31,14 +31,16 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; chi
 
 // Main App Component
 function App() {
-  const [user, authLoading, authError] = useAuthState(auth);
+  const [user, authLoading] = useAuthState(auth);
   const { data: transactions, loading: transactionsLoading, addDocument: addTransaction, updateDocument: updateTransaction, deleteDocument: deleteTransaction, addDocumentsBatch: addTransactionsBatch } = useFirestoreCollection<Transaction>('transactions');
   const { data: categories, loading: categoriesLoading, addDocument: addCategoryDoc, updateDocument: updateCategory, deleteDocument: deleteCategory, addDocumentsBatch: addCategoriesBatch } = useFirestoreCollection<Category>('categories');
+  const { data: members, loading: membersLoading, addDocument: addMemberDoc, updateDocument: updateMember, deleteDocument: deleteMember } = useFirestoreCollection<FamilyMember>('members');
   
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as 'light' | 'dark') || 'light');
 
   const [isAddTransactionModalOpen, setAddTransactionModalOpen] = useState(false);
   const [isManageCategoriesModalOpen, setManageCategoriesModalOpen] = useState(false);
+  const [isManageMembersModalOpen, setManageMembersModalOpen] = useState(false);
   const [isBackupRestoreModalOpen, setBackupRestoreModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -117,15 +119,14 @@ function App() {
     }
   };
 
-  const handleAddCategory = (category: Omit<Category, 'id'>) => {
-      addCategoryDoc(category);
-  }
-  
-  const handleUpdateCategory = (category: Category) => {
+  const handleAddOrUpdateCategory = (category: Omit<Category, 'id'> | Category) => {
+    if ('id' in category) {
       const { id, ...dataToUpdate} = category;
       updateCategory(id, dataToUpdate);
-      setEditingCategory(null); // Exit editing mode
-  }
+    } else {
+      addCategoryDoc(category);
+    }
+  };
   
   const handleDeleteCategory = (id: string) => {
       if(transactions.some(t => t.categoryId === id)) {
@@ -136,13 +137,30 @@ function App() {
           deleteCategory(id);
       }
   }
+
+  const handleAddOrUpdateMember = (member: Omit<FamilyMember, 'id'> | FamilyMember) => {
+    if ('id' in member) {
+      const { id, ...dataToUpdate } = member;
+      updateMember(id, dataToUpdate);
+    } else {
+      addMemberDoc(member);
+    }
+  };
+
+  const handleDeleteMember = (id: string) => {
+    if (transactions.some(t => t.memberId === id)) {
+        alert("Cannot delete a member with associated transactions. Please re-assign their transactions first.");
+        return;
+    }
+    if (window.confirm('Are you sure you want to delete this family member?')) {
+        deleteMember(id);
+    }
+  };
   
   const handleRestore = (file: File) => {
     importFromJson(file, (data) => {
         if(window.confirm('This will overwrite your current data on the server. Are you sure?')) {
-            // A simple validation for categories before setting them
             const sanitizedCategories = data.categories.map(c => ({...c, icon: ICONS[c.name.toUpperCase() as keyof typeof ICONS] || ICONS.OTHER }));
-            // This is a simplified restore. For a real app, you'd clear existing and batch add new.
             addTransactionsBatch(data.transactions.map(({id, ...rest}) => rest));
             addCategoriesBatch(sanitizedCategories.map(({id, ...rest}) => rest));
             alert('Data restored successfully!');
@@ -153,8 +171,8 @@ function App() {
 
   if (authLoading) {
     return (
-        <div className="min-h-screen flex items-center justify-center">
-            <h1 className="text-2xl">Loading...</h1>
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900">
+            <h1 className="text-2xl font-bold text-gray-700 dark:text-gray-300">Loading Application...</h1>
         </div>
     )
   }
@@ -185,6 +203,9 @@ function App() {
             </button>
              <div className="flex items-center space-x-1 sm:space-x-2">
                 <span className="text-sm hidden md:inline">{user.email}</span>
+                <button onClick={() => setManageMembersModalOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Manage Members">
+                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.653-.125-1.274-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.653.125-1.274.356-1.857m0 0a3.001 3.001 0 015.644 0M12 12a3 3 0 100-6 3 3 0 000 6z" /></svg>
+                </button>
                 <button onClick={() => setManageCategoriesModalOpen(true)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors" aria-label="Manage Categories">
                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                 </button>
@@ -205,10 +226,10 @@ function App() {
         </div>
       </header>
       <main className="container mx-auto p-4 sm:p-6 lg:p-8">
-        {(transactionsLoading || categoriesLoading) ? <p>Loading data...</p> : (
+        {(transactionsLoading || categoriesLoading || membersLoading) ? <p>Loading data...</p> : (
             <>
-                <Dashboard transactions={transactions} categories={categories} />
-                <TransactionsList transactions={transactions} categories={categories} onEdit={handleEditTransaction} onDelete={handleDeleteTransaction}/>
+                <Dashboard transactions={transactions} categories={categories} members={members} />
+                <TransactionsList transactions={transactions} categories={categories} members={members} onEdit={handleEditTransaction} onDelete={handleDeleteTransaction}/>
             </>
         )}
       </main>
@@ -223,17 +244,22 @@ function App() {
         onClose={() => { setAddTransactionModalOpen(false); setEditingTransaction(null); }}
         onSubmit={handleAddOrUpdateTransaction}
         categories={categories}
+        members={members}
         transaction={editingTransaction}
       />
       <ManageCategoriesModal 
         isOpen={isManageCategoriesModalOpen}
-        onClose={() => { setManageCategoriesModalOpen(false); setEditingCategory(null); }}
+        onClose={() => setManageCategoriesModalOpen(false)}
         categories={categories}
-        editingCategory={editingCategory}
-        onAddCategory={handleAddCategory}
-        onUpdateCategory={handleUpdateCategory}
-        onDeleteCategory={handleDeleteCategory}
-        onSetEditingCategory={setEditingCategory}
+        onAddOrUpdate={handleAddOrUpdateCategory}
+        onDelete={handleDeleteCategory}
+      />
+      <ManageMembersModal
+        isOpen={isManageMembersModalOpen}
+        onClose={() => setManageMembersModalOpen(false)}
+        members={members}
+        onAddOrUpdate={handleAddOrUpdateMember}
+        onDelete={handleDeleteMember}
       />
       <BackupRestoreModal 
         isOpen={isBackupRestoreModalOpen}
@@ -248,10 +274,11 @@ function App() {
 
 
 // Transaction Modal Component
-const AddTransactionModal: React.FC<{ isOpen: boolean; onClose: () => void; onSubmit: (data: any) => void; categories: Category[]; transaction: Transaction | null; }> = ({ isOpen, onClose, onSubmit, categories, transaction }) => {
+const AddTransactionModal: React.FC<{ isOpen: boolean; onClose: () => void; onSubmit: (data: any) => void; categories: Category[]; members: FamilyMember[]; transaction: Transaction | null; }> = ({ isOpen, onClose, onSubmit, categories, members, transaction }) => {
   const [type, setType] = useState<TransactionType>(TransactionType.EXPENSE);
   const [amount, setAmount] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  const [memberId, setMemberId] = useState<string | undefined>(undefined);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');
 
@@ -260,12 +287,15 @@ const AddTransactionModal: React.FC<{ isOpen: boolean; onClose: () => void; onSu
       setType(transaction.type);
       setAmount(String(transaction.amount));
       setCategoryId(transaction.categoryId);
+      setMemberId(transaction.memberId);
       setDate(transaction.date);
       setDescription(transaction.description);
     } else {
+      // Reset form
       setType(TransactionType.EXPENSE);
       setAmount('');
       setCategoryId(categories.length > 0 ? categories[0].id : '');
+      setMemberId(undefined);
       setDate(new Date().toISOString().split('T')[0]);
       setDescription('');
     }
@@ -274,10 +304,10 @@ const AddTransactionModal: React.FC<{ isOpen: boolean; onClose: () => void; onSu
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!amount || !categoryId || !date) {
-      alert('Please fill all fields');
+      alert('Please fill all required fields');
       return;
     }
-    onSubmit({ id: transaction?.id, type, amount: parseFloat(amount), categoryId, date, description });
+    onSubmit({ id: transaction?.id, type, amount: parseFloat(amount), categoryId, date, description, memberId });
   };
   
   const incomeCategoryNames = ['Salary', 'Gifts', 'Other'];
@@ -294,12 +324,21 @@ const AddTransactionModal: React.FC<{ isOpen: boolean; onClose: () => void; onSu
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount</label>
           <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" required className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent" />
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
-          <select value={categoryId} onChange={e => setCategoryId(e.target.value)} required className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent">
-            <option value="">Select Category</option>
-            {filteredCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+         <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
+              <select value={categoryId} onChange={e => setCategoryId(e.target.value)} required className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent">
+                <option value="">Select Category</option>
+                {filteredCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Member</label>
+              <select value={memberId || ''} onChange={e => setMemberId(e.target.value || undefined)} className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent">
+                <option value="">Family Pool</option>
+                {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Date</label>
@@ -319,14 +358,12 @@ const ManageCategoriesModal: React.FC<{
     isOpen: boolean; 
     onClose: () => void; 
     categories: Category[];
-    editingCategory: Category | null;
-    onAddCategory: (category: Omit<Category, 'id'>) => void; 
-    onUpdateCategory: (category: Category) => void;
-    onDeleteCategory: (id: string) => void; 
-    onSetEditingCategory: (category: Category | null) => void;
-}> = ({isOpen, onClose, categories, editingCategory, onAddCategory, onUpdateCategory, onDeleteCategory, onSetEditingCategory}) => {
+    onAddOrUpdate: (category: Omit<Category, 'id'> | Category) => void; 
+    onDelete: (id: string) => void; 
+}> = ({isOpen, onClose, categories, onAddOrUpdate, onDelete}) => {
     const [name, setName] = useState('');
     const [color, setColor] = useState(COLORS[0]);
+    const [editingCategory, setEditingCategory] = useState<Category | null>(null);
 
     useEffect(() => {
       if (editingCategory) {
@@ -344,18 +381,12 @@ const ManageCategoriesModal: React.FC<{
         if (!name || !color) return;
         
         if (editingCategory) {
-            onUpdateCategory({ ...editingCategory, name, color });
+            onAddOrUpdate({ ...editingCategory, name, color });
         } else {
             const iconKey = name.toUpperCase() as keyof typeof ICONS;
-            onAddCategory({ name, color, icon: ICONS[iconKey] || ICONS.OTHER });
+            onAddOrUpdate({ name, color, icon: ICONS[iconKey] || ICONS.OTHER });
         }
-        onSetEditingCategory(null);
-        setName('');
-        setColor(COLORS[Math.floor(Math.random() * COLORS.length)]);
-    }
-
-    const handleCancelEdit = () => {
-      onSetEditingCategory(null);
+        setEditingCategory(null);
     }
 
     return (
@@ -367,7 +398,7 @@ const ManageCategoriesModal: React.FC<{
                       <label htmlFor="color-picker" className="text-sm font-medium text-gray-700 dark:text-gray-300">Color:</label>
                       <input id="color-picker" type="color" value={color} onChange={e => setColor(e.target.value)} className="w-10 h-10 rounded-md p-0 border-none cursor-pointer bg-transparent" />
                       <div className="flex-grow flex items-center space-x-2 justify-end">
-                        {editingCategory && <button type="button" onClick={handleCancelEdit} className="bg-gray-200 dark:bg-slate-600 text-black dark:text-white px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">Cancel</button>}
+                        {editingCategory && <button type="button" onClick={() => setEditingCategory(null)} className="bg-gray-200 dark:bg-slate-600 text-black dark:text-white px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">Cancel</button>}
                         <button type="submit" className="bg-primary text-white px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">{editingCategory ? 'Update' : 'Add'}</button>
                       </div>
                     </div>
@@ -380,10 +411,10 @@ const ManageCategoriesModal: React.FC<{
                                 <span>{c.name}</span>
                             </div>
                             <div className='flex items-center'>
-                                <button onClick={() => onSetEditingCategory(c)} className="p-2 text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
+                                <button onClick={() => setEditingCategory(c)} className="p-2 text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
                                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z" /></svg>
                                 </button>
-                                <button onClick={() => onDeleteCategory(c.id)} className="p-2 text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors">
+                                <button onClick={() => onDelete(c.id)} className="p-2 text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors">
                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                 </button>
                             </div>
@@ -394,6 +425,62 @@ const ManageCategoriesModal: React.FC<{
         </Modal>
     );
 };
+
+const ManageMembersModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  members: FamilyMember[];
+  onAddOrUpdate: (member: Omit<FamilyMember, 'id'> | FamilyMember) => void;
+  onDelete: (id: string) => void;
+}> = ({ isOpen, onClose, members, onAddOrUpdate, onDelete }) => {
+    const [name, setName] = useState('');
+    const [editingMember, setEditingMember] = useState<FamilyMember | null>(null);
+
+    useEffect(() => {
+        if(editingMember) setName(editingMember.name);
+        else setName('');
+    }, [editingMember, isOpen]);
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!name) return;
+        if(editingMember) {
+            onAddOrUpdate({ ...editingMember, name });
+        } else {
+            onAddOrUpdate({ name });
+        }
+        setEditingMember(null);
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Manage Family Members">
+            <div className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-3 pb-4 border-b dark:border-slate-700">
+                    <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Member name" required className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent"/>
+                    <div className="flex justify-end space-x-2">
+                        {editingMember && <button type="button" onClick={() => setEditingMember(null)} className="bg-gray-200 dark:bg-slate-600 text-black dark:text-white px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">Cancel</button>}
+                        <button type="submit" className="bg-primary text-white px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">{editingMember ? 'Update' : 'Add'}</button>
+                    </div>
+                </form>
+                <div className="max-h-60 overflow-y-auto space-y-2">
+                    {members.map(m => (
+                        <div key={m.id} className="flex items-center justify-between p-2 rounded-md bg-gray-50 dark:bg-slate-700">
+                           <span>{m.name}</span>
+                            <div className='flex items-center'>
+                                <button onClick={() => setEditingMember(m)} className="p-2 text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z" /></svg>
+                                </button>
+                                <button onClick={() => onDelete(m.id)} className="p-2 text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors">
+                                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </Modal>
+    )
+}
 
 const BackupRestoreModal: React.FC<{isOpen: boolean, onClose: () => void, onExportCsv: () => void, onExportJson: () => void, onRestore: (file: File) => void }> = ({isOpen, onClose, onExportCsv, onExportJson, onRestore}) => {
     const fileInputRef = React.useRef<HTMLInputElement>(null);

@@ -15,6 +15,11 @@ export interface Category {
   icon: React.ReactElement;
 }
 
+export interface FamilyMember {
+  id: string;
+  name: string;
+}
+
 export interface Transaction {
   id: string;
   type: TransactionType;
@@ -22,4 +27,5 @@ export interface Transaction {
   categoryId: string;
   date: string; // ISO 8601 format: YYYY-MM-DD
   description: string;
+  memberId?: string; // Optional: Link to a family member
 }

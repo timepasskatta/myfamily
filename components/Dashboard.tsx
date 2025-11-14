@@ -1,10 +1,11 @@
 import React, { useMemo } from 'react';
-import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Transaction, Category, TransactionType } from '../types';
+import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { Transaction, Category, TransactionType, FamilyMember } from '../types';
 
 interface DashboardProps {
   transactions: Transaction[];
   categories: Category[];
+  members: FamilyMember[];
 }
 
 const SummaryCard: React.FC<{ title: string; amount: number; color: string }> = ({ title, amount, color }) => (
@@ -59,7 +60,33 @@ const TrendChart: React.FC<{ data: any[] }> = ({ data }) => {
   );
 };
 
-export const Dashboard: React.FC<DashboardProps> = ({ transactions, categories }) => {
+const ContributionsChart: React.FC<{ data: { name: string; value: number }[] }> = ({ data }) => {
+  if (!data || data.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400">
+        Add members and transactions to see contributions.
+      </div>
+    );
+  }
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <BarChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(128, 128, 128, 0.2)" />
+        <XAxis dataKey="name" stroke="rgb(156 163 175)" />
+        <YAxis stroke="rgb(156 163 175)" tickFormatter={(value) => new Intl.NumberFormat('en-IN', { notation: 'compact', compactDisplay: 'short' }).format(value as number)} />
+        <Tooltip formatter={(value: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(value)} />
+        <Bar dataKey="value">
+          {data.map((entry, index) => (
+            <Cell key={`cell-${index}`} fill={entry.value >= 0 ? '#22c55e' : '#f97316'} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+};
+
+
+export const Dashboard: React.FC<DashboardProps> = ({ transactions, categories, members }) => {
   const [dateRange, setDateRange] = React.useState('month');
 
   const filteredTransactions = useMemo(() => {
@@ -89,9 +116,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, categories }
   }, [filteredTransactions]);
 
   const categoryExpenseData = useMemo(() => {
-    // FIX: The initial value for `reduce` was an empty object `{}`, which caused TypeScript to infer the accumulator's values as `unknown`.
-    // This resulted in an error when trying to access `.value` in the `sort` function.
-    // A type assertion has been added to the initial value to correctly type the accumulator.
     const expenseByCategory = filteredTransactions
       .filter(t => t.type === TransactionType.EXPENSE)
       .reduce((acc, t) => {
@@ -105,14 +129,31 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, categories }
         return acc;
       }, {} as { [key: string]: { name: string; value: number; color: string } });
 
-    return Object.values(expenseByCategory).sort((a,b) => b.value - a.value);
+    // FIX: Explicitly type `a` and `b` in the sort function. TypeScript is failing to infer
+    // the correct type from `Object.values`, resulting in `a` and `b` being `unknown`.
+    return Object.values(expenseByCategory).sort((a: { value: number }, b: { value: number }) => b.value - a.value);
   }, [filteredTransactions, categories]);
+
+  const memberContributionsData = useMemo(() => {
+    const contributions = members.reduce((acc, member) => {
+      acc[member.id] = { name: member.name, value: 0 };
+      return acc;
+    }, {} as { [key: string]: { name: string, value: number } });
+  
+    filteredTransactions.forEach(t => {
+      if (t.memberId && contributions[t.memberId]) {
+        const amount = t.type === TransactionType.INCOME ? t.amount : -t.amount;
+        contributions[t.memberId].value += amount;
+      }
+    });
+  
+    return Object.values(contributions);
+  }, [filteredTransactions, members]);
 
   const trendData = useMemo(() => {
     const dataByMonth: { [key: string]: { name: string, Income: number, Expense: number } } = {};
     const monthFormatter = new Intl.DateTimeFormat('en-US', { month: 'short' });
 
-    // For year view, group by month. For month view, group by day.
     const filteredForTrend = dateRange === 'year' 
         ? transactions.filter(t => new Date(t.date).getFullYear() === new Date().getFullYear())
         : filteredTransactions;
@@ -138,7 +179,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, categories }
     });
     
     return Object.values(dataByMonth).sort((a, b) => {
-        // Simple sort for demostration. A robust sort would parse dates.
         const dateA = new Date(dateRange === 'year' ? `01 ${a.name} 2023` : a.name);
         const dateB = new Date(dateRange === 'year' ? `01 ${b.name} 2023` : b.name);
         return dateA.getTime() - dateB.getTime();
@@ -172,6 +212,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ transactions, categories }
         <SummaryCard title="Total Income" amount={totalIncome} color="text-green-500" />
         <SummaryCard title="Total Expense" amount={totalExpense} color="text-red-500" />
         <SummaryCard title="Balance" amount={balance} color={balance >= 0 ? 'text-blue-500' : 'text-orange-500'} />
+      </div>
+
+      <div className="bg-white dark:bg-slate-800 p-4 sm:p-6 rounded-2xl shadow-lg">
+          <h3 className="text-xl font-semibold mb-4 text-gray-800 dark:text-white">Member Contributions</h3>
+          <ContributionsChart data={memberContributionsData} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

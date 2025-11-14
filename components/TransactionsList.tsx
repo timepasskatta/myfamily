@@ -1,26 +1,30 @@
 import React, { useState, useMemo } from 'react';
-import { Transaction, Category, TransactionType } from '../types';
+import { Transaction, Category, TransactionType, FamilyMember } from '../types';
 
 interface TransactionsListProps {
   transactions: Transaction[];
   categories: Category[];
+  members: FamilyMember[];
   onEdit: (transaction: Transaction) => void;
   onDelete: (id: string) => void;
 }
 
-export const TransactionsList: React.FC<TransactionsListProps> = ({ transactions, categories, onEdit, onDelete }) => {
+export const TransactionsList: React.FC<TransactionsListProps> = ({ transactions, categories, members, onEdit, onDelete }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterType, setFilterType] = useState('all');
+  const [filterMember, setFilterMember] = useState('all');
   const [sortOrder, setSortOrder] = useState('date-desc');
 
   const categoryMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
+  const memberMap = useMemo(() => new Map(members.map(m => [m.id, m.name])), [members]);
 
   const filteredAndSortedTransactions = useMemo(() => {
     let filtered = [...transactions]
       .filter(t => t.description.toLowerCase().includes(searchTerm.toLowerCase()))
       .filter(t => filterCategory === 'all' || t.categoryId === filterCategory)
-      .filter(t => filterType === 'all' || t.type === filterType);
+      .filter(t => filterType === 'all' || t.type === filterType)
+      .filter(t => filterMember === 'all' || t.memberId === (filterMember === 'pool' ? undefined : filterMember));
     
     return filtered.sort((a, b) => {
       switch(sortOrder) {
@@ -32,10 +36,11 @@ export const TransactionsList: React.FC<TransactionsListProps> = ({ transactions
           return new Date(b.date).getTime() - new Date(a.date).getTime();
       }
     });
-  }, [transactions, searchTerm, filterCategory, filterType, sortOrder]);
+  }, [transactions, searchTerm, filterCategory, filterType, filterMember, sortOrder]);
 
   const TransactionRow: React.FC<{ transaction: Transaction }> = ({ transaction }) => {
     const category = categoryMap.get(transaction.categoryId);
+    const memberName = transaction.memberId ? memberMap.get(transaction.memberId) : 'Family Pool';
     const isExpense = transaction.type === TransactionType.EXPENSE;
 
     return (
@@ -49,7 +54,9 @@ export const TransactionsList: React.FC<TransactionsListProps> = ({ transactions
         <div className="flex-grow grid sm:grid-cols-2 gap-x-4 items-center">
             <div className="min-w-0">
                 <p className="font-semibold text-gray-800 dark:text-white truncate" title={transaction.description}>{transaction.description || 'No Description'}</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">{category?.name || 'Uncategorized'}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {category?.name || 'Uncategorized'} &bull; <span className="font-medium">{memberName || ''}</span>
+                </p>
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 sm:mt-0 sm:text-right">{new Date(transaction.date).toLocaleDateString('en-CA')}</p>
         </div>
@@ -76,7 +83,7 @@ export const TransactionsList: React.FC<TransactionsListProps> = ({ transactions
   return (
     <div className="mt-12">
       <h2 className="text-3xl font-bold text-gray-800 dark:text-white mb-6">All Transactions</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 p-4 bg-white dark:bg-slate-800 rounded-lg shadow-md">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6 p-4 bg-white dark:bg-slate-800 rounded-lg shadow-md">
         <input type="text" placeholder="Search description..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent"/>
         <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent">
           <option value="all">All Categories</option>
@@ -86,6 +93,11 @@ export const TransactionsList: React.FC<TransactionsListProps> = ({ transactions
           <option value="all">All Types</option>
           <option value={TransactionType.INCOME}>Income</option>
           <option value={TransactionType.EXPENSE}>Expense</option>
+        </select>
+        <select value={filterMember} onChange={e => setFilterMember(e.target.value)} className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent">
+          <option value="all">All Members</option>
+          <option value="pool">Family Pool</option>
+          {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
         </select>
         <select value={sortOrder} onChange={e => setSortOrder(e.target.value)} className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 focus:ring-2 focus:ring-primary focus:border-transparent">
           <option value="date-desc">Date (Newest)</option>
