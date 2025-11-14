@@ -4,7 +4,11 @@
 // 4. Click on the "Web" icon (</>) to create a new web app or select your existing one.
 // 5. You will find your firebaseConfig object there. Copy and paste it below.
 
-import { initializeApp } from "firebase/app";
+// FIX: The error indicates that `initializeApp` cannot be imported as a named export from `firebase/app`.
+// This is likely due to a dependency version mismatch or a build tool configuration issue.
+// Switching to the Firebase v9 compat library for initialization provides a compatible `app` object
+// that works with the rest of the application's modular v9 code.
+import firebase from "firebase/compat/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
@@ -21,6 +25,6 @@ const firebaseConfig = {
 
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+const app = firebase.initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);

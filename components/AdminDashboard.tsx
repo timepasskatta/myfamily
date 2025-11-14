@@ -9,6 +9,8 @@ export const AdminDashboard: React.FC = () => {
     const [error, setError] = useState('');
     const [updatingUser, setUpdatingUser] = useState<string | null>(null);
     const [updateError, setUpdateError] = useState<string | null>(null);
+    const [approvingUserId, setApprovingUserId] = useState<string | null>(null);
+    const [customDate, setCustomDate] = useState('');
 
 
     useEffect(() => {
@@ -54,6 +56,22 @@ export const AdminDashboard: React.FC = () => {
         if (duration === '1y') expiresAt = now + 365 * 24 * 60 * 60 * 1000;
         
         updateUserStatus(uid, UserStatus.APPROVED, expiresAt);
+        setApprovingUserId(null);
+    };
+
+    const handleApproveCustomDate = (uid: string, dateString: string) => {
+        if (!dateString) {
+            setUpdateError("Please select a valid date.");
+            return;
+        }
+        const date = new Date(dateString);
+        // Set time to the end of the selected day in the user's local timezone
+        date.setHours(23, 59, 59, 999);
+        const expiresAt = date.getTime();
+        
+        updateUserStatus(uid, UserStatus.APPROVED, expiresAt);
+        setApprovingUserId(null);
+        setCustomDate('');
     };
 
     const handleReject = (uid: string) => updateUserStatus(uid, UserStatus.REJECTED);
@@ -72,26 +90,42 @@ export const AdminDashboard: React.FC = () => {
                                 {user.status === UserStatus.APPROVED && (user.accessExpiresAt ? `Expires: ${new Date(user.accessExpiresAt).toLocaleDateString()}` : 'Lifetime Access')}
                             </p>
                         </div>
-                        <div className="flex items-center space-x-2 flex-shrink-0 self-end sm:self-center">
+                        <div className="flex items-center justify-end flex-wrap gap-2 flex-shrink-0 self-end sm:self-center">
                             {updatingUser === user.id ? (
                                 <p className="text-sm text-gray-500 italic">Updating...</p>
+                            ) : approvingUserId === user.id ? (
+                                <div className="flex flex-wrap items-center justify-end gap-2 w-full">
+                                    <button onClick={() => handleApprove(user.id, '30d')} className="px-2 py-1 text-xs bg-blue-500 text-white rounded-md hover:bg-blue-600">30d</button>
+                                    <button onClick={() => handleApprove(user.id, '1y')} className="px-2 py-1 text-xs bg-blue-500 text-white rounded-md hover:bg-blue-600">1y</button>
+                                    <button onClick={() => handleApprove(user.id, 'life')} className="px-2 py-1 text-xs bg-blue-500 text-white rounded-md hover:bg-blue-600">Life</button>
+                                    <div className="flex items-center border border-gray-300 dark:border-slate-500 rounded-md">
+                                        <input
+                                            type="date"
+                                            onChange={e => setCustomDate(e.target.value)}
+                                            min={new Date().toISOString().split('T')[0]}
+                                            className="p-1 text-xs bg-transparent dark:text-white focus:outline-none rounded-l-md"
+                                            style={{ colorScheme: 'dark' }}
+                                        />
+                                        <button
+                                            onClick={() => handleApproveCustomDate(user.id, customDate)}
+                                            disabled={!customDate}
+                                            className="px-2 py-1 text-xs bg-green-500 text-white rounded-r-md hover:bg-green-600 disabled:bg-gray-400"
+                                        >
+                                            Set
+                                        </button>
+                                    </div>
+                                    <button onClick={() => setApprovingUserId(null)} className="px-2 py-1 text-xs bg-gray-500 text-white rounded-md hover:bg-gray-600">Cancel</button>
+                                </div>
                             ) : (
                                 <>
                                     {user.status === UserStatus.PENDING && (
                                         <>
-                                            <div className="relative group">
-                                                <button className="px-3 py-1 text-sm bg-green-500 text-white rounded-md hover:bg-green-600">Approve</button>
-                                                <div className="absolute right-0 bottom-full mb-2 w-32 bg-white dark:bg-slate-800 rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto z-10 border dark:border-slate-600">
-                                                    <button onClick={() => handleApprove(user.id, '30d')} className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-600 rounded-t-md">30 Days</button>
-                                                    <button onClick={() => handleApprove(user.id, '1y')} className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-600">1 Year</button>
-                                                    <button onClick={() => handleApprove(user.id, 'life')} className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-600 rounded-b-md">Lifetime</button>
-                                                </div>
-                                            </div>
+                                            <button onClick={() => setApprovingUserId(user.id)} className="px-3 py-1 text-sm bg-green-500 text-white rounded-md hover:bg-green-600">Approve</button>
                                             <button onClick={() => handleReject(user.id)} className="px-3 py-1 text-sm bg-red-500 text-white rounded-md hover:bg-red-600">Reject</button>
                                         </>
                                     )}
                                     {user.status === UserStatus.APPROVED && <button onClick={() => handleRevoke(user.id)} className="px-3 py-1 text-sm bg-yellow-500 text-white rounded-md hover:bg-yellow-600">Revoke</button>}
-                                    {user.status === UserStatus.REJECTED && <button onClick={() => handleApprove(user.id, 'life')} className="px-3 py-1 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600">Re-approve</button>}
+                                    {user.status === UserStatus.REJECTED && <button onClick={() => setApprovingUserId(user.id)} className="px-3 py-1 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600">Re-approve</button>}
                                 </>
                             )}
                         </div>
