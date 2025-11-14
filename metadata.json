@@ -1,0 +1,5 @@
+{
+  "name": "Family Expense Tracker",
+  "description": "A clean, professional, and intuitive static web application for tracking family income and expenses. Features include category management, detailed analytics, charts, data export/import, and a dark mode, all without needing a backend server.",
+  "requestFramePermissions": []
+}
