@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebaseConfig';
-import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { UserProfile, UserStatus } from '../types';
 import { signOut, User } from 'firebase/auth';
+import { FullScreenLoader } from './Loader';
 
 // --- Reusable Icon Components ---
 const Icon: React.FC<{ path: string }> = ({ path }) => (
@@ -29,12 +30,35 @@ const useUsers = () => {
         const unsubscribe = onSnapshot(usersColRef, (snapshot) => {
             const userList: UserProfile[] = [];
             snapshot.forEach(doc => userList.push({ id: doc.id, ...doc.data() } as UserProfile));
-            setUsers(userList.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
+            
+            // Prioritize pending users by sorting them to the top
+            const statusOrder = {
+                [UserStatus.PENDING]: 1,
+                [UserStatus.APPROVED]: 2,
+                [UserStatus.REJECTED]: 3,
+            };
+
+            userList.sort((a, b) => {
+                const statusA = statusOrder[a.status] || 99;
+                const statusB = statusOrder[b.status] || 99;
+                
+                if (statusA !== statusB) {
+                    return statusA - statusB; // Sort by status first
+                }
+                
+                // Then sort by date, newest first
+                const dateA = a.createdAt?.seconds || 0;
+                const dateB = b.createdAt?.seconds || 0;
+                return dateB - dateA;
+            });
+
+            setUsers(userList);
             setLoading(false);
+            setError('');
         }, (err) => {
             console.error("Error fetching users:", err);
             setError(err.code === 'permission-denied'
-                ? "Permission Denied: Ensure Firestore rules grant admin access."
+                ? "Permission Denied: Ensure your Firestore security rules grant admin access to the 'users' collection."
                 : "Failed to load user data."
             );
             setLoading(false);
@@ -51,13 +75,53 @@ const AdminPage: React.FC<{ user: User }> = ({ user }) => {
     const [view, setView] = useState('dashboard');
     const [isSidebarOpen, setSidebarOpen] = useState(false);
     const { users, loading, error } = useUsers();
+    const [signingOut, setSigningOut] = useState(false);
 
     useEffect(() => {
         localStorage.setItem('theme', theme);
         document.documentElement.classList.toggle('dark', theme === 'dark');
     }, [theme]);
+    
+    useEffect(() => {
+        if (!user) return;
+
+        const userDocRef = doc(db, 'users', user.uid);
+        
+        // Use onSnapshot for offline resilience to check for and create the admin profile.
+        const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+            if (!docSnap.exists()) {
+                // Admin profile doesn't exist, create it.
+                const userProfilePayload = {
+                    email: user.email || 'Admin Email',
+                    username: user.email?.split('@')[0] || 'Admin',
+                    status: UserStatus.APPROVED,
+                    accessExpiresAt: null,
+                    createdAt: serverTimestamp(),
+                };
+                setDoc(userDocRef, userProfilePayload).catch(e => {
+                    console.error("Error creating admin profile:", e);
+                });
+            }
+        }, (error) => {
+            console.error("Error listening to admin profile:", error);
+        });
+
+        // Cleanup the listener on component unmount
+        return () => unsubscribe();
+    }, [user]);
 
     const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
+
+    const handleSignOut = async () => {
+        setSigningOut(true);
+        try {
+            await signOut(auth);
+            // The useUserStatus hook will handle redirecting to the login page
+        } catch (e) {
+            console.error("Sign out error", e);
+            setSigningOut(false); // allow user to try again if it fails
+        }
+    };
 
     const NavItem: React.FC<{
         icon: React.ReactNode,
@@ -72,14 +136,17 @@ const AdminPage: React.FC<{ user: User }> = ({ user }) => {
     );
 
     const renderContent = () => {
-        if (loading) return <div className="flex items-center justify-center h-full"><p>Loading...</p></div>;
-        if (error) return <div className="p-4 bg-red-100 text-red-700 rounded-lg">{error}</div>;
+        if (loading) return <div className="flex items-center justify-center h-full"><p>Loading users...</p></div>;
+        if (error) return <div className="p-4 bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-200 rounded-lg text-center font-medium">{error}</div>;
 
-        const otherUsers = users.filter(u => u.id !== user.id);
-        if (view === 'dashboard') return <DashboardView users={otherUsers} />;
-        if (view === 'users') return <UserManagementView users={otherUsers} />;
+        if (view === 'dashboard') return <DashboardView users={users} />;
+        if (view === 'users') return <UserManagementView users={users} adminUid={user.uid} />;
         return null;
     };
+
+    if (signingOut) {
+        return <FullScreenLoader />;
+    }
 
     return (
         <div className="min-h-screen flex text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-slate-900">
@@ -104,7 +171,7 @@ const AdminPage: React.FC<{ user: User }> = ({ user }) => {
                     <div className="flex items-center space-x-4">
                         <span className="text-sm hidden sm:inline">{user.email}</span>
                         <button onClick={toggleTheme} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700">{theme === 'light' ? <MoonIcon /> : <SunIcon />}</button>
-                        <button onClick={() => signOut(auth)} className="p-2 rounded-full text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><LogoutIcon /></button>
+                        <button onClick={handleSignOut} className="p-2 rounded-full text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50"><LogoutIcon /></button>
                     </div>
                 </header>
 
@@ -151,8 +218,8 @@ const DashboardView: React.FC<{ users: UserProfile[] }> = ({ users }) => {
                     {recentUsers.length > 0 ? recentUsers.map(u => (
                          <div key={u.id} className="flex justify-between items-center p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700/50">
                              <div>
-                                <p className="font-medium">{u.email}</p>
-                                <p className="text-sm text-gray-500 dark:text-gray-400">Joined on {new Date(u.createdAt.seconds * 1000).toLocaleDateString()}</p>
+                                <p className="font-medium">{u.username}</p>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">{u.email}</p>
                              </div>
                              <StatusBadge status={u.status} expiresAt={u.accessExpiresAt} />
                          </div>
@@ -178,7 +245,7 @@ const StatusBadge: React.FC<{ status: UserStatus, expiresAt?: number | null }> =
     return <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full ${colors[effectiveStatus as keyof typeof colors]}`}>{effectiveStatus}</span>
 };
 
-const UserManagementView: React.FC<{ users: UserProfile[] }> = ({ users }) => {
+const UserManagementView: React.FC<{ users: UserProfile[]; adminUid: string }> = ({ users, adminUid }) => {
     type Tab = 'pending' | 'active' | 'expired' | 'rejected';
     const [currentTab, setCurrentTab] = useState<Tab>('pending');
     const [searchTerm, setSearchTerm] = useState('');
@@ -195,7 +262,16 @@ const UserManagementView: React.FC<{ users: UserProfile[] }> = ({ users }) => {
             expired: users.filter(u => u.status === 'approved' && u.accessExpiresAt && u.accessExpiresAt < now),
             rejected: users.filter(u => u.status === 'rejected'),
         };
-        return byStatus[currentTab].filter(u => u.email.toLowerCase().includes(searchTerm.toLowerCase()));
+        
+        if (!searchTerm) {
+          return byStatus[currentTab];
+        }
+
+        const lowerCaseSearch = searchTerm.toLowerCase();
+        return byStatus[currentTab].filter(u => 
+          (u.username || '').toLowerCase().includes(lowerCaseSearch) ||
+          (u.email || '').toLowerCase().includes(lowerCaseSearch)
+        );
     }, [users, currentTab, searchTerm]);
 
     const updateUser = async (uid: string, status: UserStatus, expiresAt: number | null = null) => {
@@ -249,7 +325,7 @@ const UserManagementView: React.FC<{ users: UserProfile[] }> = ({ users }) => {
             <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-md">
                 <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-4">
                     <div className="relative flex-grow">
-                         <input type="text" placeholder="Search by email..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 pl-10 focus:ring-2 focus:ring-primary focus:border-transparent"/>
+                         <input type="text" placeholder="Search by username or email..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-gray-100 dark:bg-slate-700 border-transparent rounded-md p-2 pl-10 focus:ring-2 focus:ring-primary focus:border-transparent"/>
                          <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400">
                            <Icon path="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                          </div>
@@ -264,29 +340,29 @@ const UserManagementView: React.FC<{ users: UserProfile[] }> = ({ users }) => {
                 {updateError && <p className="text-sm text-center font-medium text-red-500 p-2 bg-red-100 dark:bg-red-900/50 rounded-md my-2">{updateError}</p>}
                 
                 <div className="space-y-3">
-                    {filteredUsers.length > 0 ? filteredUsers.map(user => (
+                    {filteredUsers.length > 0 ? filteredUsers.map(user => {
+                        const isSelf = user.id === adminUid;
+                        return (
                         <div key={user.id} className="p-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                              <div className="flex-grow min-w-0">
-                                <p className="font-medium truncate">{user.email}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    Joined: {new Date(user.createdAt.seconds * 1000).toLocaleDateString()} | 
-                                    Expires: {user.accessExpiresAt ? new Date(user.accessExpiresAt).toLocaleDateString() : 'Never'}
-                                </p>
+                                <p className="font-medium truncate">{user.username}</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.email}</p>
                              </div>
                              <div className="flex items-center justify-end gap-2 flex-shrink-0 self-end sm:self-center">
                                  <StatusBadge status={user.status} expiresAt={user.accessExpiresAt} />
                                  {updatingUser === user.id ? <p className="text-sm italic">Updating...</p> : (approvingUserId !== user.id &&
                                     <>
-                                        {currentTab === 'pending' && <button onClick={() => setApprovingUserId(user.id)} className="px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600">Approve</button>}
-                                        {currentTab === 'pending' && <button onClick={() => updateUser(user.id, UserStatus.REJECTED)} className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600">Reject</button>}
-                                        {currentTab === 'active' && <button onClick={() => updateUser(user.id, UserStatus.REJECTED)} className="px-2 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600">Revoke</button>}
-                                        {(currentTab === 'rejected' || currentTab === 'expired') && <button onClick={() => setApprovingUserId(user.id)} className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600">Re-approve</button>}
+                                        {currentTab === 'pending' && <button disabled={isSelf} onClick={() => setApprovingUserId(user.id)} className="px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed">Approve</button>}
+                                        {currentTab === 'pending' && <button disabled={isSelf} onClick={() => updateUser(user.id, UserStatus.REJECTED)} className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed">Reject</button>}
+                                        {currentTab === 'active' && <button disabled={isSelf} onClick={() => updateUser(user.id, UserStatus.REJECTED)} className="px-2 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed">Revoke</button>}
+                                        {(currentTab === 'rejected' || currentTab === 'expired') && <button disabled={isSelf} onClick={() => setApprovingUserId(user.id)} className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed">Re-approve</button>}
                                     </>
                                  )}
                              </div>
                              {approvingUserId === user.id && <ApprovalForm uid={user.id} />}
                         </div>
-                    )) : <p className="text-center py-4 text-gray-500">No users found in this category.</p>}
+                    )
+                    }) : <p className="text-center py-4 text-gray-500">No users found in this category.</p>}
                 </div>
             </div>
         </div>

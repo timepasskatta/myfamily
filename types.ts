@@ -39,6 +39,7 @@ export enum UserStatus {
 export interface UserProfile {
   id: string; // This will be the user's UID
   email: string;
+  username: string;
   status: UserStatus;
   accessExpiresAt: number | null; // JS timestamp or null for lifetime
   createdAt: Timestamp;

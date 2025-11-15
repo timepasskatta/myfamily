@@ -1,5 +1,7 @@
 import React from 'react';
 import { User } from 'firebase/auth';
+import { signOut } from 'firebase/auth';
+import { auth } from '../firebaseConfig';
 
 const StatusContainer: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900">
@@ -49,6 +51,14 @@ export const RejectedScreen: React.FC = () => (
     <StatusContainer title="Access Denied">
         <p>Your request for access has been rejected by the administrator.</p>
         <p>If you believe this is an error, please contact support.</p>
+        <div className="pt-4">
+            <button
+                onClick={() => signOut(auth)}
+                className="w-full text-center bg-gray-200 dark:bg-slate-600 text-black dark:text-white p-3 rounded-lg font-semibold hover:opacity-90 transition-opacity"
+            >
+                Go to Home / Login
+            </button>
+        </div>
     </StatusContainer>
 );
 

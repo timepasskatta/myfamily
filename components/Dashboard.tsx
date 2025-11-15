@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, memo } from 'react';
 import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Transaction, Category, TransactionType, FamilyMember } from '../types';
 
@@ -8,14 +8,14 @@ interface DashboardProps {
   members: FamilyMember[];
 }
 
-const SummaryCard: React.FC<{ title: string; amount: number; color: string }> = ({ title, amount, color }) => (
+const SummaryCard: React.FC<{ title: string; amount: number; color: string }> = memo(({ title, amount, color }) => (
   <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-lg transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
     <h3 className="text-lg font-medium text-gray-500 dark:text-gray-400">{title}</h3>
     <p className={`text-4xl font-bold ${color} mt-2`}>{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(amount)}</p>
   </div>
-);
+));
 
-const CategoryChart: React.FC<{ data: { name: string; value: number; color: string }[] }> = ({ data }) => {
+const CategoryChart: React.FC<{ data: { name: string; value: number; color: string }[] }> = memo(({ data }) => {
   if (!data || data.length === 0) {
     return (
         <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400">
@@ -35,9 +35,9 @@ const CategoryChart: React.FC<{ data: { name: string; value: number; color: stri
       </PieChart>
     </ResponsiveContainer>
   );
-};
+});
 
-const TrendChart: React.FC<{ data: any[] }> = ({ data }) => {
+const TrendChart: React.FC<{ data: any[] }> = memo(({ data }) => {
     if (!data || data.length === 0) {
     return (
         <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400">
@@ -58,9 +58,9 @@ const TrendChart: React.FC<{ data: any[] }> = ({ data }) => {
       </LineChart>
     </ResponsiveContainer>
   );
-};
+});
 
-const ContributionsChart: React.FC<{ data: { name: string; value: number }[] }> = ({ data }) => {
+const ContributionsChart: React.FC<{ data: { name: string; value: number }[] }> = memo(({ data }) => {
   if (!data || data.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400">
@@ -83,7 +83,7 @@ const ContributionsChart: React.FC<{ data: { name: string; value: number }[] }> 
       </BarChart>
     </ResponsiveContainer>
   );
-};
+});
 
 
 const Dashboard: React.FC<DashboardProps> = ({ transactions, categories, members }) => {
@@ -233,4 +233,4 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, categories, members
   );
 };
 
-export default Dashboard;
+export default memo(Dashboard);

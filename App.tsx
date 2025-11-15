@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense, lazy, useCallback } from 'react';
 import { auth } from './firebaseConfig';
 import { signOut, User } from 'firebase/auth';
 import { useFirestoreCollection } from './hooks/useFirestoreCollection';
@@ -10,10 +10,12 @@ import { TransactionsList } from './components/TransactionsList';
 import { Auth } from './components/Auth';
 import { PendingScreen, RejectedScreen, ExpiredScreen } from './components/UserStatusScreens';
 import { exportToCsv, exportToJson, importFromJson } from './hooks/dataUtils';
+import { FullScreenLoader } from './components/Loader';
 
 // Lazy Load components for code-splitting and better performance
 const LazyAdminPage = lazy(() => import('./components/AdminDashboard'));
 const LazyDashboard = lazy(() => import('./components/Dashboard'));
+const LazyAIAssistant = lazy(() => import('./components/AIAssistant'));
 
 
 // UI Components defined in the same file to reduce file count
@@ -34,16 +36,6 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; chi
   );
 };
 
-// Loading Spinner for Suspense fallback
-const FullScreenLoader: React.FC = () => (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-900">
-        <svg className="animate-spin h-10 w-10 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-    </div>
-);
-
 // Main App Component
 function App() {
   const { status, user, authLoading } = useUserStatus();
@@ -52,6 +44,7 @@ function App() {
   const { data: members, loading: membersLoading, addDocument: addMemberDoc, updateDocument: updateMember, deleteDocument: deleteMember, addDocumentsBatch: addMembersBatch } = useFirestoreCollection<FamilyMember>('members');
   
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as 'light' | 'dark') || 'light');
+  const [activeView, setActiveView] = useState<'dashboard' | 'ai'>('dashboard');
 
   const [isAddTransactionModalOpen, setAddTransactionModalOpen] = useState(false);
   const [isManageCategoriesModalOpen, setManageCategoriesModalOpen] = useState(false);
@@ -128,7 +121,7 @@ function App() {
 
   const toggleTheme = () => setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
 
-  const handleAddOrUpdateTransaction = (transaction: Omit<Transaction, 'id'> & { id?: string }) => {
+  const handleAddOrUpdateTransaction = useCallback((transaction: Omit<Transaction, 'id'> & { id?: string }) => {
     if (transaction.id) {
       const {id, ...dataToUpdate} = transaction;
       updateTransaction(id, dataToUpdate);
@@ -138,29 +131,29 @@ function App() {
     }
     setAddTransactionModalOpen(false);
     setEditingTransaction(null);
-  };
+  }, [addTransaction, updateTransaction]);
 
-  const handleEditTransaction = (transaction: Transaction) => {
+  const handleEditTransaction = useCallback((transaction: Transaction) => {
     setEditingTransaction(transaction);
     setAddTransactionModalOpen(true);
-  };
+  }, []);
 
-  const handleDeleteTransaction = (id: string) => {
+  const handleDeleteTransaction = useCallback((id: string) => {
     if (window.confirm('Are you sure you want to delete this transaction?')) {
       deleteTransaction(id);
     }
-  };
+  }, [deleteTransaction]);
 
-  const handleAddOrUpdateCategory = (category: Omit<Category, 'id'> | Category) => {
+  const handleAddOrUpdateCategory = useCallback((category: Omit<Category, 'id'> | Category) => {
     if ('id' in category) {
       const { id, ...dataToUpdate} = category;
       updateCategory(id, dataToUpdate);
     } else {
       addCategoryDoc(category);
     }
-  };
+  }, [addCategoryDoc, updateCategory]);
   
-  const handleDeleteCategory = (id: string) => {
+  const handleDeleteCategory = useCallback((id: string) => {
       if(transactions.some(t => t.categoryId === id)) {
           alert("Cannot delete category with associated transactions. Please re-assign them first.");
           return;
@@ -168,9 +161,9 @@ function App() {
       if (window.confirm('Are you sure you want to delete this category?')) {
           deleteCategory(id);
       }
-  }
+  }, [transactions, deleteCategory])
 
-  const handleAddOrUpdateMember = (member: Omit<FamilyMember, 'id'> | FamilyMember) => {
+  const handleAddOrUpdateMember = useCallback((member: Omit<FamilyMember, 'id'> | FamilyMember) => {
     if (member.name.toLowerCase() === 'home balance') {
         alert('"Home Balance" is a default member and cannot be modified.');
         return;
@@ -181,9 +174,9 @@ function App() {
     } else {
       addMemberDoc(member);
     }
-  };
+  }, [addMemberDoc, updateMember]);
 
-  const handleDeleteMember = (id: string) => {
+  const handleDeleteMember = useCallback((id: string) => {
     if (transactions.some(t => t.memberId === id)) {
         alert("Cannot delete a member with associated transactions. Please re-assign their transactions first.");
         return;
@@ -191,9 +184,9 @@ function App() {
     if (window.confirm('Are you sure you want to delete this family member?')) {
         deleteMember(id);
     }
-  };
+  }, [transactions, deleteMember]);
   
-  const handleRestore = (file: File) => {
+  const handleRestore = useCallback((file: File) => {
     importFromJson(file, (data) => {
         if(window.confirm('This will add data from the backup file to your account. It will not replace or delete existing data. Continue?')) {
             const iconKeys = Object.keys(ICONS);
@@ -231,7 +224,7 @@ function App() {
             });
         }
     });
-  }
+  }, [addTransactionsBatch, addCategoriesBatch, addMembersBatch])
 
   if (authLoading || status === 'loading') {
     return <FullScreenLoader />;
@@ -261,6 +254,18 @@ function App() {
         </div>
       )
   }
+
+  const PageLoader = () => (
+    <div className="space-y-8 animate-pulse mt-8">
+        <div className="h-10 bg-gray-200 dark:bg-slate-700 rounded-lg w-1/3"></div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="h-28 bg-gray-200 dark:bg-slate-700 rounded-2xl"></div>
+            <div className="h-28 bg-gray-200 dark:bg-slate-700 rounded-2xl"></div>
+            <div className="h-28 bg-gray-200 dark:bg-slate-700 rounded-2xl"></div>
+        </div>
+        <div className="h-80 bg-gray-200 dark:bg-slate-700 rounded-2xl"></div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen text-gray-800 dark:text-gray-200 bg-gray-50 dark:bg-slate-900 transition-colors duration-300">
@@ -303,18 +308,15 @@ function App() {
             <div className="text-center py-10"><p>Loading data...</p></div>
          ) : (
             <>
-              <Suspense fallback={
-                  <div className="space-y-8 animate-pulse">
-                      <div className="h-10 bg-gray-200 dark:bg-slate-700 rounded-lg w-1/3"></div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                          <div className="h-28 bg-gray-200 dark:bg-slate-700 rounded-2xl"></div>
-                          <div className="h-28 bg-gray-200 dark:bg-slate-700 rounded-2xl"></div>
-                          <div className="h-28 bg-gray-200 dark:bg-slate-700 rounded-2xl"></div>
-                      </div>
-                      <div className="h-80 bg-gray-200 dark:bg-slate-700 rounded-2xl"></div>
-                  </div>
-              }>
-                <LazyDashboard transactions={transactions} categories={categories} members={members} />
+              {/* Tab Navigation */}
+              <div className="flex border-b border-gray-200 dark:border-slate-700 mb-6">
+                <TabButton icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>} label="Dashboard" isActive={activeView === 'dashboard'} onClick={() => setActiveView('dashboard')} />
+                <TabButton icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>} label="AI Assistant" isActive={activeView === 'ai'} onClick={() => setActiveView('ai')} />
+              </div>
+
+              <Suspense fallback={<PageLoader />}>
+                {activeView === 'dashboard' && <LazyDashboard transactions={transactions} categories={categories} members={members} />}
+                {activeView === 'ai' && <LazyAIAssistant transactions={transactions} categories={categories} members={members} />}
               </Suspense>
 
               <div className="mt-8">
@@ -375,6 +377,20 @@ function App() {
 }
 
 // Sub-components
+
+const TabButton: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  isActive: boolean;
+  onClick: () => void;
+}> = ({ icon, label, isActive, onClick }) => (
+  <button onClick={onClick} className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors duration-200 ${isActive ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+    {icon}
+    {label}
+  </button>
+);
+
+
 const TransactionFormModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;

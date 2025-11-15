@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword,
@@ -12,8 +12,17 @@ export const Auth: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const storedError = sessionStorage.getItem('authError');
+    if (storedError) {
+        setError(storedError);
+        sessionStorage.removeItem('authError');
+    }
+  }, []);
 
   const handleAuthAction = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,14 +36,12 @@ export const Auth: React.FC = () => {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
         
-        // After creating the user in Auth, create their profile document in Firestore.
-        // This is a critical step; if it fails, the user exists in Auth but not in our app's DB.
         try {
-          // FIX: Switched from 'userProfiles' to a unified 'users' collection for consistency.
           const userDocRef = doc(db, 'users', user.uid);
           
           const userProfilePayload = {
               email: user.email || 'No Email Provided',
+              username: username,
               status: UserStatus.PENDING,
               accessExpiresAt: null,
               createdAt: serverTimestamp(),
@@ -43,18 +50,14 @@ export const Auth: React.FC = () => {
           
         } catch (dbError) {
           console.error("Firestore Error: Failed to create user profile.", dbError);
-          // If profile creation fails, the user is in a broken state.
-          // We must sign them out and show a clear error message.
-          setError("Account created, but failed to set up profile. Please contact the administrator.");
+          const errorMessage = "Account created, but failed to set up profile. Please contact the administrator.";
+          sessionStorage.setItem('authError', errorMessage);
           await auth.signOut();
         }
       }
     } catch (err) {
       const authError = err as AuthError;
-       // Don't show a generic auth error if we've already set a specific one for DB failure.
-      if (!error) {
-        setError(authError.message.replace('Firebase: ', ''));
-      }
+      setError(authError.message.replace('Firebase: ', ''));
     } finally {
         setLoading(false);
     }
@@ -71,6 +74,22 @@ export const Auth: React.FC = () => {
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleAuthAction}>
           <div className="rounded-md shadow-sm -space-y-px">
+             {!isLogin && (
+              <div>
+                <label htmlFor="username" className="sr-only">Username</label>
+                <input
+                  id="username"
+                  name="username"
+                  type="text"
+                  autoComplete="username"
+                  required
+                  className="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 dark:border-slate-600 placeholder-gray-500 text-gray-900 dark:text-white bg-white dark:bg-slate-700 rounded-t-md focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
+                  placeholder="Username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
+              </div>
+            )}
             <div>
               <label htmlFor="email-address" className="sr-only">Email address</label>
               <input
@@ -79,7 +98,7 @@ export const Auth: React.FC = () => {
                 type="email"
                 autoComplete="email"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 dark:border-slate-600 placeholder-gray-500 text-gray-900 dark:text-white bg-white dark:bg-slate-700 rounded-t-md focus:outline-none focus:ring-primary focus:border-primary sm:text-sm"
+                className={`appearance-none rounded-none relative block w-full px-3 py-3 border border-gray-300 dark:border-slate-600 placeholder-gray-500 text-gray-900 dark:text-white bg-white dark:bg-slate-700 ${isLogin ? 'rounded-t-md' : ''} focus:outline-none focus:ring-primary focus:border-primary sm:text-sm`}
                 placeholder="Email address"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -107,7 +126,7 @@ export const Auth: React.FC = () => {
             <button
               type="submit"
               disabled={loading}
-              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-primary hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50"
+              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-primary hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? 'Processing...' : (isLogin ? 'Sign in' : 'Sign up')}
             </button>
@@ -118,6 +137,7 @@ export const Auth: React.FC = () => {
             onClick={() => {
               setIsLogin(!isLogin);
               setError('');
+              setUsername('');
             }}
             className="font-medium text-primary hover:text-primary-400"
           >
