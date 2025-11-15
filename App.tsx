@@ -8,7 +8,7 @@ import { Category, Transaction, TransactionType, FamilyMember } from './types';
 import { DEFAULT_CATEGORIES, COLORS, ICONS, DEFAULT_INCOME_CATEGORIES, DEFAULT_EXPENSE_CATEGORIES } from './constants';
 import { TransactionsList } from './components/TransactionsList';
 import { Auth } from './components/Auth';
-import { PendingScreen, RejectedScreen, ExpiredScreen } from './components/UserStatusScreens';
+import { PendingScreen, RejectedScreen, ExpiredScreen, AwaitingProfileScreen } from './components/UserStatusScreens';
 import { exportToCsv, exportToJson, importFromJson } from './hooks/dataUtils';
 import { FullScreenLoader } from './components/Loader';
 
@@ -233,6 +233,8 @@ function App() {
   switch(status) {
     case 'no-auth':
       return <Auth />;
+    case 'awaiting-profile':
+      return <AwaitingProfileScreen user={user!} onSignOut={() => signOut(auth)} />;
     case 'pending':
       return <PendingScreen user={user} onSignOut={() => signOut(auth)} />;
     case 'rejected':

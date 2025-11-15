@@ -5,7 +5,7 @@ import { useAuthState } from 'react-firebase-hooks/auth';
 import { UserProfile, UserStatus } from '../types';
 import { ADMIN_EMAIL } from '../adminConfig';
 
-type CurrentStatus = 'loading' | 'no-auth' | 'admin' | 'approved' | 'pending' | 'rejected' | 'expired';
+type CurrentStatus = 'loading' | 'no-auth' | 'admin' | 'approved' | 'pending' | 'rejected' | 'expired' | 'awaiting-profile';
 
 export function useUserStatus() {
   const [user, authLoading] = useAuthState(auth);
@@ -52,10 +52,8 @@ export function useUserStatus() {
           }
         }
       } else {
-        // With the new logic, a user should always have a profile upon sign-up.
-        // If they don't, it's an error state. Treat them as rejected.
-        console.warn(`User ${user.uid} is authenticated but has no profile document.`);
-        setStatus('rejected');
+        // This is the new state for a user who has signed up but has no profile yet.
+        setStatus('awaiting-profile');
       }
     }, (error) => {
         console.error("Error listening to user status:", error);

@@ -14,6 +14,38 @@ const StatusContainer: React.FC<{ title: string; children: React.ReactNode }> = 
   </div>
 );
 
+export const AwaitingProfileScreen: React.FC<{ user: User; onSignOut: () => void; }> = ({ user, onSignOut }) => {
+    const adminPhoneNumber = "8208141447";
+    const userDetails = `Hello Admin, please approve my access.\n\nMy Email: ${user.email}\nMy User ID: ${user.uid}`;
+    const whatsappUrl = `https://wa.me/${adminPhoneNumber}?text=${encodeURIComponent(userDetails)}`;
+
+    return (
+        <StatusContainer title="Account Created!">
+            <div>
+                <p className="font-semibold mb-2">Your registration is complete.</p>
+                <p>To gain access, please contact the administrator on WhatsApp with your details.</p>
+                <p className="mt-4 text-sm bg-gray-100 dark:bg-slate-700 p-3 rounded-lg">Click the button below to send your User ID and Email directly to the admin.</p>
+            </div>
+            <div className="pt-4 space-y-4">
+                <a
+                    href={whatsappUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full inline-block text-center bg-green-500 text-white p-3 rounded-lg font-semibold hover:bg-green-600 transition-colors"
+                >
+                    Message Admin on WhatsApp
+                </a>
+                <button
+                    onClick={onSignOut}
+                    className="w-full text-center bg-gray-200 dark:bg-slate-600 text-black dark:text-white p-3 rounded-lg font-semibold hover:opacity-90 transition-opacity"
+                >
+                    Sign Out
+                </button>
+            </div>
+        </StatusContainer>
+    );
+};
+
 
 export const PendingScreen: React.FC<{ user: User | null; onSignOut: () => void; }> = ({ user, onSignOut }) => {
     const phoneNumber = "8208141447";

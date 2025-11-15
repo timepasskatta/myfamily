@@ -16,6 +16,7 @@ const UsersIcon = () => <Icon path="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0
 const LogoutIcon = () => <Icon path="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />;
 const SunIcon = () => <Icon path="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />;
 const MoonIcon = () => <Icon path="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />;
+const AddUserIcon = () => <Icon path="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />;
 
 
 // --- Data Fetching Hook ---
@@ -69,6 +70,108 @@ const useUsers = () => {
     return { users, loading, error };
 };
 
+const AddUserModal: React.FC<{ isOpen: boolean; onClose: () => void; }> = ({ isOpen, onClose }) => {
+    const [email, setEmail] = useState('');
+    const [uid, setUid] = useState('');
+    const [duration, setDuration] = useState<'30d' | '1y' | 'life'>('30d');
+    const [customDate, setCustomDate] = useState('');
+    const [isCustom, setIsCustom] = useState(false);
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const resetForm = () => {
+        setEmail(''); setUid(''); setDuration('30d'); setCustomDate('');
+        setIsCustom(false); setError(''); setLoading(false);
+    };
+
+    const handleCreateUser = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+        if (!email.trim() || !uid.trim()) {
+            setError('Email and User ID are required.');
+            return;
+        }
+        if (isCustom && !customDate) {
+            setError('Please select a custom expiration date.');
+            return;
+        }
+
+        setLoading(true);
+
+        let expiresAt: number | null = null;
+        const now = new Date();
+        if (isCustom) {
+            const date = new Date(customDate);
+            date.setHours(23, 59, 59, 999);
+            if (date.getTime() < now.getTime()) {
+                setError("Date cannot be in the past.");
+                setLoading(false);
+                return;
+            }
+            expiresAt = date.getTime();
+        } else if (duration === '30d') {
+            expiresAt = now.setDate(now.getDate() + 30);
+        } else if (duration === '1y') {
+            expiresAt = now.setFullYear(now.getFullYear() + 1);
+        }
+
+        try {
+            const userDocRef = doc(db, 'users', uid);
+            await setDoc(userDocRef, {
+                email,
+                username: email.split('@')[0] || `user_${uid.substring(0, 5)}`,
+                status: UserStatus.APPROVED,
+                accessExpiresAt: expiresAt,
+                createdAt: serverTimestamp(),
+            });
+            resetForm();
+            onClose();
+        } catch (err) {
+            console.error(err);
+            setError("Failed to create user profile. Please check the details and try again.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-center p-4" onClick={onClose}>
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+                <h3 className="text-xl font-bold mb-4">Manually Add User</h3>
+                <form onSubmit={handleCreateUser} className="space-y-4">
+                    <input type="email" placeholder="User Email" value={email} onChange={e => setEmail(e.target.value)} required className="w-full bg-gray-100 dark:bg-slate-700 p-2 rounded-md border-transparent focus:ring-primary"/>
+                    <input type="text" placeholder="User ID (from Firebase Auth)" value={uid} onChange={e => setUid(e.target.value)} required className="w-full bg-gray-100 dark:bg-slate-700 p-2 rounded-md border-transparent focus:ring-primary"/>
+                    
+                    <fieldset className="space-y-2">
+                        <legend className="text-sm font-medium">Access Duration</legend>
+                        <div className="flex flex-wrap gap-2">
+                            {(['30d', '1y', 'life'] as const).map(d => (
+                                <button type="button" key={d} onClick={() => { setDuration(d); setIsCustom(false); }} className={`px-3 py-1 text-sm rounded-md ${!isCustom && duration === d ? 'bg-primary text-white' : 'bg-gray-200 dark:bg-slate-600'}`}>
+                                    {d === '30d' ? '30 Days' : d === '1y' ? '1 Year' : 'Lifetime'}
+                                </button>
+                            ))}
+                             <button type="button" onClick={() => setIsCustom(true)} className={`px-3 py-1 text-sm rounded-md ${isCustom ? 'bg-primary text-white' : 'bg-gray-200 dark:bg-slate-600'}`}>
+                                Custom Date
+                            </button>
+                        </div>
+                        {isCustom && <input type="date" value={customDate} onChange={e => setCustomDate(e.target.value)} min={new Date().toISOString().split('T')[0]} required={isCustom} className="w-full mt-2 bg-gray-100 dark:bg-slate-700 p-2 rounded-md border-transparent focus:ring-primary" style={{colorScheme: 'dark'}} />}
+                    </fieldset>
+
+                    {error && <p className="text-sm text-red-500">{error}</p>}
+
+                    <div className="flex justify-end gap-3 pt-2">
+                        <button type="button" onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-slate-600 font-semibold">Cancel</button>
+                        <button type="submit" disabled={loading} className="px-4 py-2 rounded-md bg-primary text-white font-semibold disabled:opacity-50">{loading ? 'Creating...' : 'Create User'}</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+
 // --- Main Admin Page Component ---
 const AdminPage: React.FC<{ user: User }> = ({ user }) => {
     const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as 'light' | 'dark') || 'light');
@@ -76,6 +179,7 @@ const AdminPage: React.FC<{ user: User }> = ({ user }) => {
     const [isSidebarOpen, setSidebarOpen] = useState(false);
     const { users, loading, error } = useUsers();
     const [signingOut, setSigningOut] = useState(false);
+    const [isAddUserModalOpen, setAddUserModalOpen] = useState(false);
 
     useEffect(() => {
         localStorage.setItem('theme', theme);
@@ -140,7 +244,7 @@ const AdminPage: React.FC<{ user: User }> = ({ user }) => {
         if (error) return <div className="p-4 bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-200 rounded-lg text-center font-medium">{error}</div>;
 
         if (view === 'dashboard') return <DashboardView users={users} />;
-        if (view === 'users') return <UserManagementView users={users} adminUid={user.uid} />;
+        if (view === 'users') return <UserManagementView users={users} adminUid={user.uid} onAddUser={() => setAddUserModalOpen(true)} />;
         return null;
     };
 
@@ -180,6 +284,7 @@ const AdminPage: React.FC<{ user: User }> = ({ user }) => {
                 </main>
             </div>
              {isSidebarOpen && <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 bg-black/50 z-40 md:hidden"></div>}
+            <AddUserModal isOpen={isAddUserModalOpen} onClose={() => setAddUserModalOpen(false)} />
         </div>
     );
 };
@@ -245,9 +350,9 @@ const StatusBadge: React.FC<{ status: UserStatus, expiresAt?: number | null }> =
     return <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full ${colors[effectiveStatus as keyof typeof colors]}`}>{effectiveStatus}</span>
 };
 
-const UserManagementView: React.FC<{ users: UserProfile[]; adminUid: string }> = ({ users, adminUid }) => {
+const UserManagementView: React.FC<{ users: UserProfile[]; adminUid: string; onAddUser: () => void }> = ({ users, adminUid, onAddUser }) => {
     type Tab = 'pending' | 'active' | 'expired' | 'rejected';
-    const [currentTab, setCurrentTab] = useState<Tab>('pending');
+    const [currentTab, setCurrentTab] = useState<Tab>('active');
     const [searchTerm, setSearchTerm] = useState('');
     const [updatingUser, setUpdatingUser] = useState<string | null>(null);
     const [updateError, setUpdateError] = useState('');
@@ -321,7 +426,13 @@ const UserManagementView: React.FC<{ users: UserProfile[]; adminUid: string }> =
     
     return (
         <div className="space-y-6">
-            <h2 className="text-3xl font-bold">User Management</h2>
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                <h2 className="text-3xl font-bold">User Management</h2>
+                <button onClick={onAddUser} className="flex items-center gap-2 px-4 py-2 bg-primary text-white font-semibold rounded-lg shadow-sm hover:opacity-90 transition-opacity">
+                    <AddUserIcon />
+                    <span>Add User</span>
+                </button>
+            </div>
             <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-md">
                 <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-4">
                     <div className="relative flex-grow">
@@ -331,7 +442,7 @@ const UserManagementView: React.FC<{ users: UserProfile[]; adminUid: string }> =
                          </div>
                     </div>
                     <div className="flex items-center bg-gray-100 dark:bg-slate-700 rounded-lg p-1 self-start sm:self-center">
-                        {(['pending', 'active', 'expired', 'rejected'] as Tab[]).map(tab => (
+                        {(['active', 'pending', 'expired', 'rejected'] as Tab[]).map(tab => (
                             <button key={tab} onClick={() => setCurrentTab(tab)} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors duration-200 capitalize ${currentTab === tab ? 'bg-white dark:bg-primary text-primary dark:text-white shadow' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600'}`}>{tab}</button>
                         ))}
                     </div>

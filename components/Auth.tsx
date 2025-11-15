@@ -1,12 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword,
   AuthError
 } from 'firebase/auth';
-import { auth, db } from '../firebaseConfig';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { UserStatus } from '../types';
+import { auth } from '../firebaseConfig';
+
 
 export const Auth: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -15,14 +14,6 @@ export const Auth: React.FC = () => {
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    const storedError = sessionStorage.getItem('authError');
-    if (storedError) {
-        setError(storedError);
-        sessionStorage.removeItem('authError');
-    }
-  }, []);
 
   const handleAuthAction = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,27 +24,10 @@ export const Auth: React.FC = () => {
       if (isLogin) {
         await signInWithEmailAndPassword(auth, email, password);
       } else {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
-        
-        try {
-          const userDocRef = doc(db, 'users', user.uid);
-          
-          const userProfilePayload = {
-              email: user.email || 'No Email Provided',
-              username: username,
-              status: UserStatus.PENDING,
-              accessExpiresAt: null,
-              createdAt: serverTimestamp(),
-          };
-          await setDoc(userDocRef, userProfilePayload);
-          
-        } catch (dbError) {
-          console.error("Firestore Error: Failed to create user profile.", dbError);
-          const errorMessage = "Account created, but failed to set up profile. Please contact the administrator.";
-          sessionStorage.setItem('authError', errorMessage);
-          await auth.signOut();
-        }
+        // Step 1: Only create the authentication user.
+        // The user profile document in Firestore will be created manually by the admin.
+        await createUserWithEmailAndPassword(auth, email, password);
+        // On successful signup, the useUserStatus hook will redirect the user to the 'AwaitingProfileScreen'.
       }
     } catch (err) {
       const authError = err as AuthError;
